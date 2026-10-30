@@ -9,7 +9,10 @@ import type { WorkerRequest, WorkerResponse } from './engine/worker';
 import SimulationWorker from './engine/worker?worker';
 import { DEFAULT_METERS_PER_PIXEL, type BlockType, type ModelSpec } from './model/types';
 import { validateModel, type Issue } from './model/validate';
+import { setupPicture } from './ai/picture-ui';
+import { setupReview, type LastRun } from './ai/review-ui';
 import { setupAi } from './ai/ui';
+import { linkFlows } from './layout/optimize';
 import { Player } from './replay/player';
 import { computeRoutes, routeDistances, type Route } from './routing/pathfinder';
 import bank from './templates/bank.json';
@@ -61,6 +64,9 @@ store.subscribe(() => {
   flagged.clear();
   for (const e of v.errors) if (e.blockId) flagged.add(e.blockId);
   renderChecks();
+  // People per hour on each path (drives line thickness); depends on rates and splits, not only positions.
+  // Set here, before the canvas redraws (it subscribed later). The store only emits after setup.
+  canvas.routeFlows = v.model ? linkFlows(store.model) : new Map();
 });
 
 const toolButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-tool]')];
@@ -70,6 +76,8 @@ const canvas = new PlanCanvas($('canvas'), store, {
   toolChanged: (tool: Tool) => toolButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === tool))),
 });
 canvas.flagged = flagged;
+canvas.routeFlows = linkFlows(store.model);
+canvas.render();
 const inspector = new Inspector($('inspector'), store, () => {
   canvas.clearCalibration();
   canvas.setTool('select');
@@ -276,6 +284,14 @@ const ai = setupAi({ store, message, afterChange: () => requestAnimationFrame(()
 $('ai-layout').addEventListener('click', () => ai.suggestLayout());
 $('ai-fill').addEventListener('click', () => ai.fillFromText());
 $('ai-settings').addEventListener('click', () => ai.openSettings());
+const picture = setupPicture({
+  store,
+  getFrame: () => player.currentFrame(),
+  clock: Player.clock,
+  openSettings: ai.openSettings,
+  message,
+});
+$('ai-picture').addEventListener('click', () => picture.open());
 
 // ---- JSON view ----
 const IMAGE_PLACEHOLDER = '(embedded plan image)';
@@ -312,6 +328,28 @@ store.subscribe(() => {
   resultsEl.classList.toggle('stale', resultsEl.dataset.ran === 'true' && store.version !== resultsVersion);
 });
 
+// AI review of the latest run (explain, suggest, and test each suggestion in the simulator).
+let lastRun: LastRun | null = null;
+const review = setupReview({
+  host: resultsEl,
+  store,
+  getLastRun: () => lastRun,
+  ensureKey: ai.ensureKey,
+  message,
+  rerun: () => runButton.click(),
+  preview: (moves, routes) => {
+    previewVersion = store.version;
+    canvas.setPreview(moves, routes);
+  },
+});
+// The replay dots belong to the current layout, so hide them while the proposal is shown.
+canvas.onModeChange((mode) => $('canvas').classList.toggle('viewing-proposal', mode === 'proposal'));
+// A proposed layout is only valid for the model it was made from: drop it on any real edit (not on selection).
+let previewVersion = -1;
+store.subscribe(() => {
+  if (store.version !== previewVersion) canvas.setPreview(null);
+});
+
 runButton.addEventListener('click', () => {
   // The run is blocked until the model is valid.
   if (lastErrors.length) {
@@ -345,6 +383,8 @@ runButton.addEventListener('click', () => {
     message(`Done: ${msg.result.replications} replications in ${((performance.now() - started) / 1000).toFixed(1)} s.`);
     resultsEl.innerHTML = `<p class="stale-note">The model changed after this run. Run again to update.</p>`
       + resultsHtml(msg.result, model.entityLabel);
+    lastRun = { model, result: msg.result, distances: routeDistances(runRoutes) };
+    review.attach(resultsEl);
     resultsEl.dataset.ran = 'true';
     resultsVersion = version;
     resultsEl.classList.toggle('stale', version !== store.version);

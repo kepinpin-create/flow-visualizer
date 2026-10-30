@@ -63,6 +63,45 @@ export class PlanCanvas {
   flagged = new Set<string>();
   /** Walking paths per link, drawn faintly under the links. */
   routes = new Map<string, Route>();
+  /** People per hour on each link; busier paths are drawn thicker. */
+  routeFlows = new Map<string, number>();
+  /** A proposed layout (Optimize layout): new spots and the walking paths they give. */
+  private preview: { id: string; to: Point }[] = [];
+  private previewRoutes: Map<string, Route> | null = null;
+  /** Which layout the plan shows while a proposal exists. The proposal view is look-only. */
+  private viewing: 'current' | 'proposal' = 'current';
+  private viewSwitch!: HTMLElement;
+  private modeListeners = new Set<(mode: 'current' | 'proposal') => void>();
+
+  /** Shows a proposed layout and switches the plan to it; null removes it. */
+  setPreview(moves: { id: string; to: Point }[] | null, routes?: Map<string, Route>) {
+    this.preview = moves ?? [];
+    this.previewRoutes = routes ?? null;
+    this.setViewing(this.preview.length ? 'proposal' : 'current');
+  }
+
+  onModeChange(fn: (mode: 'current' | 'proposal') => void) {
+    this.modeListeners.add(fn);
+  }
+
+  private setViewing(mode: 'current' | 'proposal') {
+    this.viewing = this.preview.length ? mode : 'current';
+    this.viewSwitch.hidden = !this.preview.length;
+    for (const b of this.viewSwitch.querySelectorAll<HTMLButtonElement>('[data-view]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.view === this.viewing));
+    }
+    this.svg.classList.toggle('proposal', this.viewing === 'proposal');
+    for (const fn of this.modeListeners) fn(this.viewing);
+    this.render();
+  }
+
+  /** The model as drawn: with the proposed positions while viewing the proposal. */
+  private displayModel() {
+    const m = this.store.model;
+    if (this.viewing !== 'proposal' || !this.preview.length) return m;
+    const to = new Map(this.preview.map((p) => [p.id, p.to]));
+    return { ...m, blocks: m.blocks.map((b) => (to.has(b.id) ? { ...b, x: to.get(b.id)![0], y: to.get(b.id)![1] } : b)) };
+  }
   private viewListeners = new Set<() => void>();
   /** Fingers currently on the plan, by pointer id, in client pixels. */
   private touches = new Map<number, Point>();
@@ -93,6 +132,21 @@ export class PlanCanvas {
     this.grid = this.svg.querySelector('.plan-grid')!;
     this.content = this.svg.querySelector('.content')!;
     this.overlay = this.svg.querySelector('.overlay')!;
+
+    // Switch between the current layout and a proposed one, over the same floor plan.
+    this.viewSwitch = document.createElement('div');
+    this.viewSwitch.className = 'view-switch';
+    this.viewSwitch.hidden = true;
+    this.viewSwitch.setAttribute('role', 'group');
+    this.viewSwitch.setAttribute('aria-label', 'Layout shown');
+    this.viewSwitch.innerHTML = `
+      <button type="button" data-view="current">Current layout</button>
+      <button type="button" data-view="proposal">Optimized layout</button>`;
+    host.appendChild(this.viewSwitch);
+    this.viewSwitch.addEventListener('click', (e) => {
+      const v = (e.target as HTMLElement).closest<HTMLElement>('[data-view]')?.dataset.view;
+      if (v === 'current' || v === 'proposal') this.setViewing(v);
+    });
 
     // Fade or hide the uploaded plan so the blocks on top stay readable.
     this.planControls = document.createElement('div');
@@ -250,6 +304,12 @@ export class PlanCanvas {
     }
     if (e.button !== 0 && e.button !== 1) return;
     this.svg.focus();
+    if (this.viewing === 'proposal') {
+      // The proposal is to look at, not edit: only panning works here.
+      this.hooks.message('This is the proposed layout. Switch to “Current layout” to edit, or apply it from the results.');
+      this.startPan(e);
+      return;
+    }
     const target = e.target as Element;
     const p = this.toWorld(e);
     const blockEl = target.closest<SVGElement>('[data-block]');
@@ -511,7 +571,8 @@ export class PlanCanvas {
   }
 
   render() {
-    const m = this.store.model;
+    const m = this.displayModel();
+    const proposal = this.viewing === 'proposal';
     const { width, height } = planExtent(m);
     for (const el of [this.svg.querySelector('.plan-bg')!, this.image, this.grid]) {
       el.setAttribute('width', String(width));
@@ -528,8 +589,9 @@ export class PlanCanvas {
     this.applyView();
 
     const k = this.view.k;
-    const sel = this.store.selection;
+    const sel = proposal ? null : this.store.selection;
     const byId = new Map(m.blocks.map((b) => [b.id, b]));
+    const routes = proposal && this.previewRoutes ? this.previewRoutes : this.routes;
     const parts: string[] = [];
 
     (m.walls ?? []).forEach((w, i) => {
@@ -539,11 +601,15 @@ export class PlanCanvas {
         <polyline class="wall${on ? ' selected' : ''}" points="${pts}"/></g>`);
     });
 
-    // Walking paths first, so links draw on top of them.
+    // Walking paths first, so links draw on top of them. Width shows how many people use each one.
+    const maxFlow = Math.max(0, ...this.routeFlows.values());
     for (const l of m.links) {
-      const r = this.routes.get(routeKey(l.from, l.to));
+      const key = routeKey(l.from, l.to);
+      const r = routes.get(key);
       if (!r || r.meters === 0) continue;
-      parts.push(`<polyline class="route${r.noPath ? ' no-path' : ''}" points="${r.points.map(([x, y]) => `${x},${y}`).join(' ')}"/>`);
+      const flow = this.routeFlows.get(key) ?? 0;
+      const width = maxFlow > 0 ? 2 + 10 * (flow / maxFlow) : 3;
+      parts.push(`<polyline class="route${r.noPath ? ' no-path' : ''}" style="stroke-width:${width.toFixed(1)}" points="${r.points.map(([x, y]) => `${x},${y}`).join(' ')}"><title>${Math.round(flow)} people/h walk ${r.meters.toFixed(1)} m</title></polyline>`);
     }
 
     m.links.forEach((l, i) => {
@@ -567,7 +633,12 @@ export class PlanCanvas {
         <line class="link${on ? ' selected' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#arrow)"/>${label}</g>`);
     });
 
-    for (const b of m.blocks) parts.push(this.blockSvg(b, k, sel?.kind === 'block' && sel.id === b.id));
+    // In the proposal view, blocks that moved are marked so the change is easy to spot.
+    const movedIds = new Set(proposal ? this.preview.map((p) => p.id) : []);
+    for (const b of m.blocks) {
+      parts.push(this.blockSvg(b, k, sel?.kind === 'block' && sel.id === b.id).replace(
+        'class="block"', movedIds.has(b.id) ? 'class="block moved"' : 'class="block"'));
+    }
     this.content.innerHTML = parts.join('');
     this.renderOverlay();
   }

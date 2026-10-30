@@ -31,6 +31,13 @@ interface BlockBase {
   origin?: Origin;
   /** Values the AI could not read and filled with a placeholder; the run is blocked until the user confirms them. */
   needsInput?: NeedsInput[];
+  /** Built in place (doors, counters): AI review may not move it. Unset = entrances and exits are fixed, the rest movable. */
+  fixed?: boolean;
+}
+
+/** Whether AI review may suggest moving this block. */
+export function isFixed(b: Pick<BlockBase, 'type' | 'fixed'>): boolean {
+  return b.fixed ?? (b.type === 'source' || b.type === 'sink');
 }
 
 export type NeedsInput = 'arrival' | 'servers' | 'service' | 'time' | 'routing';

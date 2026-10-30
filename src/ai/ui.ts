@@ -291,6 +291,8 @@ export function setupAi(opts: { store: Store; message: (t: string, kind?: 'info'
 
   return {
     openSettings: () => openSettings(),
+    /** Runs `then` once an API key is set, asking for one first if needed. */
+    ensureKey: (then: () => void) => withKey(then),
     suggestLayout: () => withKey(() => openLayout()),
     /** Right after a plan upload: ask first, and only ask for a key if the user says yes. */
     offerAfterUpload: () => openLayout(true),

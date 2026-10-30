@@ -39,6 +39,7 @@ const base = {
   rotation: { type: 'number' },
   origin: { enum: ['user', 'ai'] },
   needsInput: { type: 'array', items: { enum: ['arrival', 'servers', 'service', 'time', 'routing'] }, uniqueItems: true },
+  fixed: { type: 'boolean' },
 };
 
 function block(type: string, extra: Record<string, unknown>, required: string[] = []) {

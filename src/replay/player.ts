@@ -3,7 +3,7 @@ import type { PlanCanvas } from '../editor/canvas';
 import type { LogEvent } from '../engine/simulator';
 import { DEFAULT_METERS_PER_PIXEL, type ModelSpec } from '../model/types';
 import type { Route } from '../routing/pathfinder';
-import { Replay, type DotState } from './replay';
+import { Replay, type Dot, type DotState } from './replay';
 
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
 const DEFAULT_SPEED = 100;
@@ -91,6 +91,17 @@ export class Player {
 
   get loaded() {
     return this.replay !== null;
+  }
+
+  /** Everyone's position at the moment the replay shows, or null before a run. */
+  currentFrame(): { t: number; dots: Dot[]; stale: boolean } | null {
+    if (!this.replay) return null;
+    return { t: this.t, dots: this.replay.at(this.t).dots, stale: !this.els.stale.hidden };
+  }
+
+  /** "6:18:21" for a time in minutes. */
+  static clock(min: number): string {
+    return clock(min);
   }
 
   load(log: LogEvent[], model: ModelSpec, routes: Map<string, Route>, end: number) {

@@ -1,6 +1,6 @@
 import { mean } from '../engine/distributions';
 import type { Arrival, Block, Distribution, ModelSpec, Point } from '../model/types';
-import { DEFAULT_TRAVEL_SPEED_MPS, NEEDS_INPUT_LABELS, type NeedsInput } from '../model/types';
+import { DEFAULT_TRAVEL_SPEED_MPS, isFixed, NEEDS_INPUT_LABELS, type NeedsInput } from '../model/types';
 import { BLOCK_STYLES, metersPerPixel, splitEvenly } from './blocks';
 import type { Store } from './store';
 
@@ -292,6 +292,10 @@ export class Inspector {
         : ''}
       ${this.field('Label', this.textInput('label', b.label, set('label', (v) => v)))}
       ${body}
+      <label class="check"><input type="checkbox" ${isFixed(b) ? 'checked' : ''} ${this.bind('fixed', (m, _v, el) => {
+        const t = m.blocks.find((x) => x.id === id);
+        if (t) t.fixed = (el as HTMLInputElement).checked;
+      })}> <span>Fixed in place<small>AI review will not suggest moving it (doors, built-in counters).</small></span></label>
       <details class="footprint"><summary>Footprint and position</summary>
         ${this.field('Width (m)', this.numberInput('w', b.w ?? s.w, set('w', num), 'min="0.1" step="any"'))}
         ${this.field('Depth (m)', this.numberInput('h', b.h ?? s.h, set('h', num), 'min="0.1" step="any"'))}
