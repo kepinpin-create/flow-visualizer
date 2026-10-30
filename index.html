@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flow Visualizer</title>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Flow Visualizer <span class="tag">v0.1 preview</span></h1>
+      <div class="toolbar" role="toolbar" aria-label="Model">
+        <label class="inline">Template
+          <select id="template">
+            <option value="">—</option>
+            <option value="blank">Blank</option>
+            <option value="bank">Bank (M/M/3)</option>
+            <option value="bar">Bar (PRD example)</option>
+          </select>
+        </label>
+        <button id="upload" type="button" title="PNG, JPG or PDF">Upload plan…</button>
+        <button id="load" type="button">Open model…</button>
+        <button id="save" type="button">Save model</button>
+        <span class="sep"></span>
+        <div class="tools" role="radiogroup" aria-label="Tool">
+          <button type="button" data-tool="select" aria-pressed="true" title="Select and move (Esc)">Select</button>
+          <button type="button" data-tool="link" title="Connect blocks">Link</button>
+          <button type="button" data-tool="wall" title="Draw walls">Wall</button>
+          <button type="button" data-tool="calibrate" title="Set the plan scale">Calibrate</button>
+        </div>
+        <span class="sep"></span>
+        <button id="undo" type="button" title="Undo (Ctrl+Z)">Undo</button>
+        <button id="redo" type="button" title="Redo (Ctrl+Y)">Redo</button>
+        <button id="fit" type="button" title="Fit plan to view">Fit</button>
+        <span class="grow"></span>
+        <button id="run" class="primary" type="button">Run simulation</button>
+      </div>
+      <input id="plan-file" type="file" accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf" hidden />
+      <input id="model-file" type="file" accept=".json,application/json" hidden />
+    </header>
+
+    <div id="message" class="message" role="status"></div>
+
+    <main class="workspace">
+      <aside class="palette" aria-label="Blocks">
+        <h2>Blocks</h2>
+        <p class="note">Drag onto the plan, or click to add.</p>
+        <div id="palette"></div>
+      </aside>
+      <section class="canvas-wrap" id="canvas"></section>
+      <aside class="inspector" id="inspector" aria-label="Properties"></aside>
+    </main>
+
+    <section class="bottom">
+      <div class="panel checks">
+        <h2>Checks <span id="check-count" class="badge"></span></h2>
+        <div id="issues"></div>
+      </div>
+      <div class="panel results" id="results">
+        <p class="empty">Run the model to see KPIs, the theory check and Little's Law.</p>
+      </div>
+      <details class="panel json">
+        <summary>Model JSON</summary>
+        <p class="note">The model as it is saved. Edit it and press Apply to load the change.</p>
+        <textarea id="editor" spellcheck="false"></textarea>
+        <button id="apply-json" type="button">Apply JSON</button>
+      </details>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

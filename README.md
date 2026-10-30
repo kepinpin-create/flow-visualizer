@@ -1,0 +1,81 @@
+# Flow Visualizer
+
+Draw your flow on your real floor plan and see the queues in minutes.
+
+An open-source, browser-based queuing and flow simulator. Upload a 2D floor plan, place simple blocks on it,
+enter arrival and service data, and watch an animated simulation with KPIs checked against queuing theory.
+Runs entirely in the browser; no install, account or API key.
+
+> **Status: v0.1 in progress.** Done: simulation engine with theory checks, and the floor-plan editor
+> (upload, calibration, blocks, links, walls, undo). Next: wall-aware walking paths and the animated replay.
+
+## Using the editor
+
+1. **Upload plan…** takes a PNG, JPG or PDF (first page). The Calibrate tool opens: click two points whose real
+   distance you know and enter it in meters.
+2. Drag blocks from the palette onto the plan (or click one to drop it in the middle).
+3. Pick **Link**, then click the block the flow leaves and the block it goes to. Split the flow with a Decision.
+4. Pick **Wall** and click points; double-click or Enter finishes.
+5. Select anything to edit it on the right. Drag to move; corner handle resizes, top handle rotates.
+   Delete removes, Ctrl+D duplicates, Ctrl+Z / Ctrl+Y undo and redo.
+6. **Checks** lists what blocks the run; click an item to jump to its block. **Run simulation** when it is ready.
+7. **Save model** downloads one JSON file with the plan image inside; **Open model…** loads it back.
+
+## Run it locally
+
+Needs Node.js 20 or newer.
+
+```bash
+npm install
+npm run dev        # open http://localhost:5173
+npm test           # engine benchmarks and validation tests
+npm run build      # production build into dist/
+```
+
+## How it works
+
+Every part of the app reads or writes one JSON **model spec** (`src/model/types.ts`). The engine knows seven
+generic block types and nothing about bars, banks or factories; domain words are only labels.
+
+| Block | Meaning | Key fields |
+| --- | --- | --- |
+| `source` | Entities arrive | `arrival` (rate per hour, or any distribution), `groupSize`, `maxArrivals` |
+| `queue` | Entities wait for the Server it feeds | `capacity`, `discipline` (FIFO, LIFO), `balkThreshold` |
+| `server` | Entities are processed | `servers` (c), `service` distribution |
+| `resource` | Shared moving staff or equipment | `count` (placed only; not simulated yet) |
+| `delay` | Time spent without a server | `time` distribution |
+| `decision` | Splits the flow | `prob` on each outgoing link, summing to 1 |
+| `sink` | Entities leave | — |
+
+Distributions (all in minutes): `fixed`, `exponential`, `normal` (truncated at 0), `uniform`, `triangular`.
+
+### Trusting the numbers
+
+- **Replications**: every run repeats with independent seeded random streams (30 by default) and reports
+  means with 95% confidence intervals. The same seed always gives the same result.
+- **Warm-up**: statistics before the warm-up time are discarded.
+- **Theory check**: any station that is M/M/c (Poisson arrivals, exponential service, unlimited FIFO line,
+  nothing upstream breaking that) is compared to Erlang-C for Wq and Lq. This covers open Jackson networks.
+- **Little's Law**: L = λW is checked for the whole system and every waiting line on each run.
+- **Warnings**: utilization ≥ 0.95, unstable stations, and a warm-up shorter than 3× the mean time in system.
+
+The test suite (`tests/`) holds the published benchmarks: M/M/1, M/M/3 and M/M/5 at ρ up to 0.9, plus a
+Jackson network with a split, all within 5% of theory over long runs.
+
+## Project layout
+
+```
+src/model/      model spec types, JSON Schema, validation (FR-15)
+src/editor/     plan upload, SVG canvas, palette and properties panel, undo/redo store
+src/ui/         results dashboard
+src/engine/     discrete-event engine, distributions, replications, Web Worker
+src/analysis/   Erlang-C, traffic equations, M/M/c eligibility
+src/templates/  built-in models as JSON (bank, bar)
+tests/          benchmarks and validation tests (Vitest)
+```
+
+New templates are plain JSON files in `src/templates/`; no code change is needed to describe a new model.
+
+## License
+
+[MIT](LICENSE)

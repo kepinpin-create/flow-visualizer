@@ -1,0 +1,19 @@
+{
+  "version": "0.1",
+  "entityLabel": "customer",
+  "blocks": [
+    { "id": "entrance", "type": "source", "label": "Entrance", "x": 100, "y": 350,
+      "arrival": { "dist": "exponential", "ratePerHour": 30 }, "origin": "user" },
+    { "id": "waiting", "type": "queue", "label": "Waiting area", "x": 350, "y": 350,
+      "discipline": "FIFO", "origin": "user" },
+    { "id": "tellers", "type": "server", "label": "Tellers", "x": 600, "y": 350,
+      "servers": 3, "service": { "dist": "exponential", "meanMin": 4 }, "origin": "user" },
+    { "id": "exit", "type": "sink", "label": "Exit", "x": 850, "y": 350, "origin": "user" }
+  ],
+  "links": [
+    { "from": "entrance", "to": "waiting" },
+    { "from": "waiting", "to": "tellers" },
+    { "from": "tellers", "to": "exit" }
+  ],
+  "run": { "hours": 8, "warmupMin": 60, "replications": 30, "seed": 42 }
+}

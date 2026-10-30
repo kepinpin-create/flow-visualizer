@@ -1,0 +1,24 @@
+{
+  "name": "flow-visualizer",
+  "version": "0.1.0",
+  "description": "Browser-based floor plan flow and queuing simulator",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "pdfjs-dist": "^6.4.299"
+  }
+}

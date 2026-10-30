@@ -1,0 +1,27 @@
+{
+  "version": "0.1",
+  "entityLabel": "customer",
+  "background": { "file": "bar-plan.png", "metersPerPixel": 0.02 },
+  "walls": [[[40, 40], [900, 40], [900, 700], [40, 700], [40, 40]]],
+  "blocks": [
+    { "id": "door", "type": "source", "label": "Door", "x": 100, "y": 600,
+      "arrival": { "dist": "exponential", "ratePerHour": 40 }, "origin": "user" },
+    { "id": "bar_queue", "type": "queue", "label": "Bar line", "x": 400, "y": 450,
+      "capacity": 10, "discipline": "FIFO", "origin": "ai" },
+    { "id": "bar", "type": "server", "label": "Bartender", "x": 500, "y": 300,
+      "servers": 2, "service": { "dist": "exponential", "meanMin": 3 }, "origin": "ai" },
+    { "id": "split", "type": "decision", "label": "Order or sit", "x": 200, "y": 550 },
+    { "id": "seats", "type": "delay", "label": "Seating", "x": 700, "y": 200,
+      "time": { "dist": "triangular", "min": 10, "mode": 30, "max": 60 } },
+    { "id": "exit", "type": "sink", "label": "Exit", "x": 100, "y": 650 }
+  ],
+  "links": [
+    { "from": "door", "to": "split" },
+    { "from": "split", "to": "bar_queue", "prob": 0.8 },
+    { "from": "split", "to": "seats", "prob": 0.2 },
+    { "from": "bar_queue", "to": "bar" },
+    { "from": "bar", "to": "seats" },
+    { "from": "seats", "to": "exit" }
+  ],
+  "run": { "hours": 8, "warmupMin": 30, "replications": 30, "seed": 42 }
+}
