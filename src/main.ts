@@ -5,6 +5,8 @@ import { Inspector } from './editor/inspector';
 import { Store } from './editor/store';
 import { loadPlan } from './editor/upload';
 import type { WorkerRequest, WorkerResponse } from './engine/worker';
+// Vite builds this as a classic worker (see vite.config.ts), so older browsers can run it too.
+import SimulationWorker from './engine/worker?worker';
 import { DEFAULT_METERS_PER_PIXEL, type BlockType, type ModelSpec } from './model/types';
 import { validateModel, type Issue } from './model/validate';
 import { Player } from './replay/player';
@@ -138,7 +140,44 @@ $('palette').addEventListener('dragstart', (e) => {
     e.dataTransfer.effectAllowed = 'copy';
   }
 });
+// Touch screens: HTML drag and drop does not work with fingers, so drag a ghost by pointer instead.
+let touchDrag: { type: BlockType; ghost: HTMLElement; x0: number; y0: number; moved: boolean } | null = null;
+let suppressClick = false;
+$('palette').addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;
+  const item = (e.target as HTMLElement).closest<HTMLElement>('[data-type]');
+  if (!item) return;
+  const ghost = item.cloneNode(true) as HTMLElement;
+  ghost.classList.add('drag-ghost');
+  ghost.hidden = true;
+  document.body.appendChild(ghost);
+  touchDrag = { type: item.dataset.type as BlockType, ghost, x0: e.clientX, y0: e.clientY, moved: false };
+  item.setPointerCapture(e.pointerId);
+});
+$('palette').addEventListener('pointermove', (e) => {
+  if (!touchDrag) return;
+  if (!touchDrag.moved && Math.hypot(e.clientX - touchDrag.x0, e.clientY - touchDrag.y0) < 8) return;
+  touchDrag.moved = true;
+  touchDrag.ghost.hidden = false;
+  touchDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+});
+const endTouchDrag = (e: PointerEvent, drop: boolean) => {
+  if (!touchDrag) return;
+  const { type, ghost, moved } = touchDrag;
+  ghost.remove();
+  touchDrag = null;
+  if (!moved) return; // a tap: the click handler below adds the block
+  suppressClick = true;
+  if (drop && canvas.containsPoint(e.clientX, e.clientY)) canvas.dropAt(type, e.clientX, e.clientY);
+};
+$('palette').addEventListener('pointerup', (e) => endTouchDrag(e, true));
+$('palette').addEventListener('pointercancel', (e) => endTouchDrag(e, false));
+
 $('palette').addEventListener('click', (e) => {
+  if (suppressClick) {
+    suppressClick = false;
+    return;
+  }
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-type]')?.dataset.type as BlockType | undefined;
   if (t) canvas.addAtCenter(t);
 });
@@ -273,11 +312,12 @@ runButton.addEventListener('click', () => {
     return;
   }
   worker?.terminate();
-  worker = new Worker(new URL('./engine/worker.ts', import.meta.url), { type: 'module' });
+  worker = new SimulationWorker();
   runButton.disabled = true;
   message('Running…');
   const started = performance.now();
-  const model = structuredClone(store.model);
+  // A JSON round trip rather than structuredClone, which older Safari lacks; the model is plain JSON.
+  const model = JSON.parse(JSON.stringify(store.model)) as ModelSpec;
   const runRoutes = updateRoutes();
   const version = store.version;
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
@@ -310,6 +350,15 @@ runButton.addEventListener('click', () => {
   };
   worker.postMessage({ model, recordLog: true, distances: routeDistances(runRoutes) } satisfies WorkerRequest);
 });
+
+// Offline support for the built site; skipped in `npm run dev` so edits always show.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      // No offline mode (e.g. a private window); the app works the same online.
+    });
+  });
+}
 
 // First paint.
 store.select(null);

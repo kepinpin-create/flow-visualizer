@@ -9,6 +9,18 @@ Runs entirely in the browser; no install, account or API key.
 > **Status: v0.1 feature-complete, in testing.** Simulation engine with theory checks, floor-plan editor,
 > walking paths around walls, and an animated replay.
 
+## Use it
+
+Open it in a browser: **https://kepinpin-create.github.io/flow-visualizer/** (published from `main`).
+Nothing to install, and it works on Windows, macOS, Linux, ChromeOS and tablets.
+
+- **Offline:** after the first visit the app is cached and keeps working without internet. It can also be
+  installed as an app from the browser's address bar.
+- **Browsers:** current Chrome, Edge, Firefox and Safari. Older ones back to roughly Chrome 87, Firefox 78
+  and Safari 14 run the editor and simulator; PDF import needs a recent browser (PNG/JPG work everywhere).
+- **Touch:** drag blocks from the palette with a finger, pinch with two fingers to zoom and pan.
+- **Private:** plans and models never leave your browser.
+
 ## Using the editor
 
 1. **Upload plan…** takes a PNG, JPG or PDF (first page). The Calibrate tool opens: click two points whose real
@@ -27,14 +39,21 @@ Runs entirely in the browser; no install, account or API key.
 
 ## Run it locally
 
-Needs Node.js 20 or newer.
+Needs Node.js 22.13 or newer (`.nvmrc` pins 24; with nvm, run `nvm use`). Works the same on Windows, macOS
+and Linux: line endings are fixed by `.gitattributes`, and CI checks all three on every push.
 
 ```bash
-npm install
+npm ci             # exact versions from package-lock.json
 npm run dev        # open http://localhost:5173
 npm test           # engine benchmarks and validation tests
 npm run build      # production build into dist/
+npm run preview    # serve the build, including offline mode, at http://localhost:4173
 ```
+
+### Deploying
+
+`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`.
+One-time setup in the repo: **Settings → Pages → Source: GitHub Actions**.
 
 ## How it works
 

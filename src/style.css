@@ -118,6 +118,7 @@ button.danger { color: var(--bad); }
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; min-width: 0;
 }
 .palette, .inspector { padding: 12px; overflow-y: auto; }
+/* Container queries are an enhancement: older browsers simply always show the replay legend. */
 .canvas-wrap { overflow: hidden; position: relative; container-type: size; }
 @container (max-width: 760px) {
   .replay-bar .legend { display: none; }
@@ -127,12 +128,20 @@ button.danger { color: var(--bad); }
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   margin-bottom: 6px; padding: 6px 8px; cursor: grab; border-color: var(--border);
 }
+/* Fingers drag blocks out of the palette instead of scrolling it. */
+.palette-item { touch-action: none; }
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 10; width: 170px; margin: -20px 0 0 -85px;
+  pointer-events: none; opacity: 0.85; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
 .palette-item strong { display: block; font-size: 13px; }
 .palette-item small { display: block; color: var(--muted); font-size: 11px; line-height: 1.3; }
 .swatch {
-  flex: none; width: 18px; height: 18px; background: color-mix(in srgb, var(--c) 25%, transparent);
+  flex: none; width: 18px; height: 18px; position: relative;
   border: 2px solid var(--c); border-radius: 3px;
 }
+/* A translucent fill that works in every browser (no color-mix needed). */
+.swatch::before { content: ''; position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: var(--c); opacity: 0.25; border-radius: inherit; }
 .swatch.shape-circle { border-radius: 50%; }
 .swatch.shape-diamond { transform: rotate(45deg) scale(0.8); }
 .swatch.shape-line { border-style: dashed; border-radius: 9px; width: 24px; height: 12px; }
@@ -145,7 +154,7 @@ svg.plan[data-tool='link'], svg.plan[data-tool='wall'], svg.plan[data-tool='cali
 .block { cursor: move; }
 svg.plan[data-tool='link'] .block { cursor: pointer; }
 .shape {
-  fill: color-mix(in srgb, var(--c) 22%, transparent); stroke: var(--c);
+  fill: var(--c); fill-opacity: 0.22; stroke: var(--c);
   stroke-width: 2; vector-effect: non-scaling-stroke;
 }
 .shape.dashed { stroke-dasharray: 6 4; }
@@ -181,11 +190,12 @@ svg.plan[data-tool='link'] .block { cursor: pointer; }
 .calib-pt { fill: #e0457b; }
 
 /* ---- replay ---- */
-.replay-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.replay-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 .replay-bar {
   position: absolute; left: 8px; right: 8px; bottom: 8px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel);
   background: color-mix(in srgb, var(--panel) 92%, transparent); font-size: 13px;
 }
 .replay-bar[hidden] { display: none; }
