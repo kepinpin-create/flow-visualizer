@@ -29,7 +29,19 @@ interface BlockBase {
   h?: number;
   rotation?: number;
   origin?: Origin;
+  /** Values the AI could not read and filled with a placeholder; the run is blocked until the user confirms them. */
+  needsInput?: NeedsInput[];
 }
+
+export type NeedsInput = 'arrival' | 'servers' | 'service' | 'time' | 'routing';
+
+export const NEEDS_INPUT_LABELS: Record<NeedsInput, string> = {
+  arrival: 'arrival rate',
+  servers: 'number of servers',
+  service: 'service time',
+  time: 'time spent',
+  routing: 'routing probabilities',
+};
 
 export interface SourceBlock extends BlockBase {
   type: 'source';

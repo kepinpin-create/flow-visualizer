@@ -16,6 +16,18 @@ export interface CanvasHooks {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const PLAN_OPACITY_KEY = 'flow-visualizer.planOpacity';
+const DEFAULT_PLAN_OPACITY = 40;
+
+function readPlanOpacity(): number {
+  try {
+    const v = Number(localStorage.getItem(PLAN_OPACITY_KEY));
+    if (v >= 10 && v <= 100) return v;
+  } catch {
+    // storage blocked: use the default
+  }
+  return DEFAULT_PLAN_OPACITY;
+}
 const MIN_SIZE_M = 0.3;
 
 type Drag =
@@ -42,12 +54,19 @@ export class PlanCanvas {
   private calib: Point[] = [];
   private pointer: Point | null = null;
   private imageHref = '';
+  private planControls: HTMLElement;
+  /** Plan image visibility, percent. Faded by default so blocks stand out. */
+  private planOpacity = readPlanOpacity();
+  private planShown = true;
   tool: Tool = 'select';
   /** Blocks to outline in red because validation flagged them. */
   flagged = new Set<string>();
   /** Walking paths per link, drawn faintly under the links. */
   routes = new Map<string, Route>();
   private viewListeners = new Set<() => void>();
+  /** Fingers currently on the plan, by pointer id, in client pixels. */
+  private touches = new Map<number, Point>();
+  private pinch: { dist: number; mx: number; my: number; view: { x: number; y: number; k: number } } | null = null;
 
   constructor(host: HTMLElement, private store: Store, private hooks: CanvasHooks) {
     host.innerHTML = `
@@ -75,9 +94,35 @@ export class PlanCanvas {
     this.content = this.svg.querySelector('.content')!;
     this.overlay = this.svg.querySelector('.overlay')!;
 
+    // Fade or hide the uploaded plan so the blocks on top stay readable.
+    this.planControls = document.createElement('div');
+    this.planControls.className = 'plan-controls';
+    this.planControls.innerHTML = `
+      <label class="inline">Plan <input type="range" min="10" max="100" step="5" aria-label="Plan visibility"></label>
+      <label class="inline"><input type="checkbox" checked> Show</label>`;
+    host.appendChild(this.planControls);
+    const [fade, show] = this.planControls.querySelectorAll('input');
+    fade.value = String(this.planOpacity);
+    fade.addEventListener('input', () => {
+      this.planOpacity = Number(fade.value);
+      show.checked = true;
+      this.planShown = true;
+      this.applyPlanLook();
+      try {
+        localStorage.setItem(PLAN_OPACITY_KEY, fade.value);
+      } catch {
+        // per-viewer convenience only
+      }
+    });
+    show.addEventListener('change', () => {
+      this.planShown = show.checked;
+      this.applyPlanLook();
+    });
+
     this.svg.addEventListener('pointerdown', (e) => this.onDown(e));
     this.svg.addEventListener('pointermove', (e) => this.onMove(e));
     this.svg.addEventListener('pointerup', (e) => this.onUp(e));
+    this.svg.addEventListener('pointercancel', (e) => this.onUp(e));
     this.svg.addEventListener('dblclick', () => this.tool === 'wall' && this.finishWall());
     this.svg.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.svg.addEventListener('dragover', (e) => e.preventDefault());
@@ -169,7 +214,8 @@ export class PlanCanvas {
     let id = '';
     this.store.commit((m) => {
       id = uniqueId(m, src.type);
-      const copy = { ...structuredClone(src), id, label: `${src.label} copy`, x: src.x + 30, y: src.y + 30, origin: 'user' as const };
+      // A JSON round trip rather than structuredClone, which older Safari lacks; blocks are plain JSON.
+      const copy = { ...(JSON.parse(JSON.stringify(src)) as typeof src), id, label: `${src.label} copy`, x: src.x + 30, y: src.y + 30, origin: 'user' as const };
       m.blocks.push(copy);
     });
     this.store.select({ kind: 'block', id });
@@ -191,6 +237,17 @@ export class PlanCanvas {
   // ---- pointer handling ----
 
   private onDown(e: PointerEvent) {
+    if (e.pointerType === 'touch') {
+      this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this.touches.size === 2) {
+        // A second finger turns whatever the first one started into a pinch.
+        if (this.drag && this.drag.kind !== 'pan') this.store.endGesture();
+        this.drag = null;
+        this.startPinch();
+        return;
+      }
+      if (this.touches.size > 2) return;
+    }
     if (e.button !== 0 && e.button !== 1) return;
     this.svg.focus();
     const target = e.target as Element;
@@ -282,7 +339,40 @@ export class PlanCanvas {
     this.svg.setPointerCapture(e.pointerId);
   }
 
+  private startPinch() {
+    const [[ax, ay], [bx, by]] = [...this.touches.values()];
+    const r = this.svg.getBoundingClientRect();
+    this.pinch = {
+      dist: Math.hypot(bx - ax, by - ay) || 1,
+      mx: (ax + bx) / 2 - r.left,
+      my: (ay + by) / 2 - r.top,
+      view: { ...this.view },
+    };
+  }
+
+  /** Two-finger zoom and pan for touch screens, which have no scroll wheel. */
+  private movePinch() {
+    const pin = this.pinch!;
+    const [[ax, ay], [bx, by]] = [...this.touches.values()];
+    const r = this.svg.getBoundingClientRect();
+    const mx = (ax + bx) / 2 - r.left;
+    const my = (ay + by) / 2 - r.top;
+    const k = Math.min(20, Math.max(0.05, (pin.view.k * Math.hypot(bx - ax, by - ay)) / pin.dist));
+    // Keep the plan point that was under the fingers' midpoint under it now.
+    const wx = (pin.mx - pin.view.x) / pin.view.k;
+    const wy = (pin.my - pin.view.y) / pin.view.k;
+    this.view = { k, x: mx - wx * k, y: my - wy * k };
+    this.render();
+  }
+
   private onMove(e: PointerEvent) {
+    if (this.touches.has(e.pointerId)) {
+      this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this.pinch && this.touches.size >= 2) {
+        this.movePinch();
+        return;
+      }
+    }
     const p = this.toWorld(e);
     this.pointer = p;
     const d = this.drag;
@@ -326,6 +416,8 @@ export class PlanCanvas {
   }
 
   private onUp(e: PointerEvent) {
+    this.touches.delete(e.pointerId);
+    if (this.touches.size < 2) this.pinch = null;
     if (!this.drag) return;
     if (this.drag.kind !== 'pan') this.store.endGesture();
     this.drag = null;
@@ -350,7 +442,18 @@ export class PlanCanvas {
     e.preventDefault();
     const type = e.dataTransfer?.getData('application/x-block-type') as BlockType | '';
     if (!type || !(type in BLOCK_STYLES)) return;
-    const [x, y] = this.toWorld(e);
+    this.dropAt(type, e.clientX, e.clientY);
+  }
+
+  /** True when a screen point is over the plan, so a dragged palette block may land there. */
+  containsPoint(clientX: number, clientY: number): boolean {
+    const r = this.svg.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+
+  /** Adds a block of `type` at a screen point (mouse drop or touch drag from the palette). */
+  dropAt(type: BlockType, clientX: number, clientY: number) {
+    const [x, y] = this.toWorld({ clientX, clientY });
     let id = '';
     this.store.commit((m) => {
       const b = newBlock(m, type, x, y);
@@ -388,6 +491,11 @@ export class PlanCanvas {
 
   // ---- drawing ----
 
+  private applyPlanLook() {
+    this.image.style.display = this.imageHref && this.planShown ? '' : 'none';
+    this.image.style.opacity = String(this.planOpacity / 100);
+  }
+
   private applyView() {
     this.world.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.k})`);
     for (const fn of this.viewListeners) fn();
@@ -414,8 +522,9 @@ export class PlanCanvas {
       this.imageHref = href;
       this.image.setAttribute('href', href);
     }
-    this.image.style.display = href ? '' : 'none';
     this.grid.style.display = href ? 'none' : '';
+    this.planControls.hidden = !href;
+    this.applyPlanLook();
     this.applyView();
 
     const k = this.view.k;

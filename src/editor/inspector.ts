@@ -1,6 +1,6 @@
 import { mean } from '../engine/distributions';
 import type { Arrival, Block, Distribution, ModelSpec, Point } from '../model/types';
-import { DEFAULT_TRAVEL_SPEED_MPS } from '../model/types';
+import { DEFAULT_TRAVEL_SPEED_MPS, NEEDS_INPUT_LABELS, type NeedsInput } from '../model/types';
 import { BLOCK_STYLES, metersPerPixel, splitEvenly } from './blocks';
 import type { Store } from './store';
 
@@ -62,7 +62,26 @@ export class Inspector {
       el.reportValidity();
       return;
     }
-    this.store.commit((m) => apply(m, el.value, el));
+    const key = el.dataset.key ?? '';
+    const sel = this.store.selection;
+    this.store.commit((m) => {
+      apply(m, el.value, el);
+      // Editing a value the AI could not read counts as confirming it.
+      const flag: NeedsInput | undefined = key.startsWith('arr-') ? 'arrival'
+        : key === 'servers' ? 'servers'
+        : key.startsWith('svc-') ? 'service'
+        : key.startsWith('dly-') ? 'time'
+        : key.startsWith('prob-') ? 'routing' : undefined;
+      const blockId = sel?.kind === 'block' ? sel.id : sel?.kind === 'link' ? m.links[sel.index]?.from : undefined;
+      const b = m.blocks.find((x) => x.id === blockId);
+      if (!flag || !b?.needsInput) return;
+      if (flag === 'routing') {
+        const sum = m.links.filter((l) => l.from === b.id).reduce((s, l) => s + (l.prob ?? 0), 0);
+        if (Math.abs(sum - 1) > 1e-6) return;
+      }
+      b.needsInput = b.needsInput.filter((n) => n !== flag);
+      if (!b.needsInput.length) delete b.needsInput;
+    });
   }
 
   private onClick(e: Event) {
@@ -72,6 +91,14 @@ export class Inspector {
     switch (btn.dataset.action) {
       case 'split':
         if (sel?.kind === 'block') this.store.commit((m) => splitEvenly(m, sel.id));
+        break;
+      case 'confirm-inputs':
+        if (sel?.kind === 'block') {
+          this.store.commit((m) => {
+            const b = m.blocks.find((x) => x.id === sel.id);
+            if (b) delete b.needsInput;
+          });
+        }
         break;
       case 'delete':
         this.host.dispatchEvent(new CustomEvent('delete-selection', { bubbles: true }));
@@ -258,6 +285,11 @@ export class Inspector {
 
     return `<h3><span class="swatch" style="--c:${s.color}"></span>${s.name}</h3>
       <p class="origin">${origin}</p>
+      ${b.needsInput?.length
+        ? `<div class="issue warning">The AI could not read the ${b.needsInput.map((n) => NEEDS_INPUT_LABELS[n]).join(' and ')} from the plan; the value below is a placeholder.
+            Change it, or keep it if it is right.
+            <div class="actions"><button type="button" data-action="confirm-inputs">Keep these values</button></div></div>`
+        : ''}
       ${this.field('Label', this.textInput('label', b.label, set('label', (v) => v)))}
       ${body}
       <details class="footprint"><summary>Footprint and position</summary>
