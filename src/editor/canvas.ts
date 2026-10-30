@@ -3,6 +3,7 @@ import {
   BLOCK_STYLES, deleteBlock, footprintPx, linkProblem, metersPerPixel, newBlock, planExtent, splitEvenly, uniqueId,
 } from './blocks';
 import type { Store } from './store';
+import { routeKey, type Route } from '../routing/pathfinder';
 
 export type Tool = 'select' | 'link' | 'wall' | 'calibrate';
 
@@ -44,6 +45,9 @@ export class PlanCanvas {
   tool: Tool = 'select';
   /** Blocks to outline in red because validation flagged them. */
   flagged = new Set<string>();
+  /** Walking paths per link, drawn faintly under the links. */
+  routes = new Map<string, Route>();
+  private viewListeners = new Set<() => void>();
 
   constructor(host: HTMLElement, private store: Store, private hooks: CanvasHooks) {
     host.innerHTML = `
@@ -386,6 +390,16 @@ export class PlanCanvas {
 
   private applyView() {
     this.world.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.k})`);
+    for (const fn of this.viewListeners) fn();
+  }
+
+  /** Current pan and zoom: screen = world × k + (x, y), in CSS pixels relative to the plan's box. */
+  getView() {
+    return { ...this.view };
+  }
+
+  onViewChange(fn: () => void) {
+    this.viewListeners.add(fn);
   }
 
   render() {
@@ -415,6 +429,13 @@ export class PlanCanvas {
       parts.push(`<g data-wall="${i}"><polyline class="wall-hit" points="${pts}" style="stroke-width:${12 / k}"/>
         <polyline class="wall${on ? ' selected' : ''}" points="${pts}"/></g>`);
     });
+
+    // Walking paths first, so links draw on top of them.
+    for (const l of m.links) {
+      const r = this.routes.get(routeKey(l.from, l.to));
+      if (!r || r.meters === 0) continue;
+      parts.push(`<polyline class="route${r.noPath ? ' no-path' : ''}" points="${r.points.map(([x, y]) => `${x},${y}`).join(' ')}"/>`);
+    }
 
     m.links.forEach((l, i) => {
       const a = byId.get(l.from);

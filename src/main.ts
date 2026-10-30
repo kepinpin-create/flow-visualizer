@@ -1,5 +1,5 @@
 import './style.css';
-import { BLOCK_ORDER, BLOCK_STYLES } from './editor/blocks';
+import { BLOCK_ORDER, BLOCK_STYLES, planExtent } from './editor/blocks';
 import { PlanCanvas, type Tool } from './editor/canvas';
 import { Inspector } from './editor/inspector';
 import { Store } from './editor/store';
@@ -7,6 +7,8 @@ import { loadPlan } from './editor/upload';
 import type { WorkerRequest, WorkerResponse } from './engine/worker';
 import { DEFAULT_METERS_PER_PIXEL, type BlockType, type ModelSpec } from './model/types';
 import { validateModel, type Issue } from './model/validate';
+import { Player } from './replay/player';
+import { computeRoutes, routeDistances, type Route } from './routing/pathfinder';
 import bank from './templates/bank.json';
 import bar from './templates/bar.json';
 import { resultsHtml } from './ui/results';
@@ -36,17 +38,26 @@ const flagged = new Set<string>();
 const issuesEl = $('issues');
 const checkCount = $('check-count');
 let lastErrors: Issue[] = [];
+let lastWarnings: Issue[] = [];
+/** Links with no way around the walls; filled in when routes are computed. */
+let routeWarnings: Issue[] = [];
+
+function renderChecks() {
+  checkCount.textContent = lastErrors.length ? `${lastErrors.length} to fix` : 'Ready to run';
+  checkCount.className = `badge ${lastErrors.length ? 'bad' : 'ok'}`;
+  issuesEl.innerHTML = [
+    ...lastErrors.map((e) => `<div class="issue error" ${e.blockId ? `data-block="${esc(e.blockId)}"` : ''}>${esc(e.message)}</div>`),
+    ...[...lastWarnings, ...routeWarnings].map((w) => `<div class="issue warning" ${w.blockId ? `data-block="${esc(w.blockId)}"` : ''}>${esc(w.message)}</div>`),
+  ].join('') || '<p class="note">No problems found.</p>';
+}
+
 store.subscribe(() => {
   const v = validateModel(store.model);
   lastErrors = v.errors;
+  lastWarnings = v.warnings;
   flagged.clear();
   for (const e of v.errors) if (e.blockId) flagged.add(e.blockId);
-  checkCount.textContent = v.errors.length ? `${v.errors.length} to fix` : 'Ready to run';
-  checkCount.className = `badge ${v.errors.length ? 'bad' : 'ok'}`;
-  issuesEl.innerHTML = [
-    ...v.errors.map((e) => `<div class="issue error" ${e.blockId ? `data-block="${esc(e.blockId)}"` : ''}>${esc(e.message)}</div>`),
-    ...v.warnings.map((w) => `<div class="issue warning">${esc(w.message)}</div>`),
-  ].join('') || '<p class="note">No problems found.</p>';
+  renderChecks();
 });
 
 const toolButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-tool]')];
@@ -59,6 +70,52 @@ canvas.flagged = flagged;
 const inspector = new Inspector($('inspector'), store, () => {
   canvas.clearCalibration();
   canvas.setTool('select');
+});
+
+// ---- walking paths (FR-16, FR-17) ----
+let routes = new Map<string, Route>();
+let routesFor = '';
+let routeTimer = 0;
+
+/** Everything a path depends on; paths are recomputed only when this changes. */
+function geometryKey(): string {
+  const m = store.model;
+  return JSON.stringify([
+    m.walls ?? [],
+    m.background?.metersPerPixel,
+    planExtent(m),
+    m.links.map((l) => [l.from, l.to]),
+    m.blocks.map((b) => [b.id, b.type, b.x, b.y]),
+  ]);
+}
+
+function updateRoutes(): Map<string, Route> {
+  const key = geometryKey();
+  if (key === routesFor) return routes;
+  routesFor = key;
+  const { width, height } = planExtent(store.model);
+  routes = computeRoutes(store.model, width, height);
+  const label = (id: string) => store.model.blocks.find((b) => b.id === id)?.label ?? id;
+  routeWarnings = [...routes].filter(([, r]) => r.noPath).map(([k]) => {
+    const [from, to] = k.split('>');
+    return { blockId: from, message: `Walls leave no way to walk from "${label(from)}" to "${label(to)}"; the straight line is used. Leave a door gap.` };
+  });
+  canvas.routes = routes;
+  canvas.render();
+  renderChecks();
+  return routes;
+}
+
+store.subscribe(() => {
+  clearTimeout(routeTimer);
+  routeTimer = window.setTimeout(updateRoutes, 120);
+});
+
+// ---- replay (FR-20, FR-21) ----
+const player = new Player($('canvas'), canvas);
+let playerVersion = -1;
+store.subscribe(() => {
+  if (store.version !== playerVersion) player.markStale();
 });
 
 // Clicking a check selects the block it is about.
@@ -202,10 +259,9 @@ $('inspector').addEventListener('duplicate-selection', () => canvas.duplicateSel
 const runButton = $<HTMLButtonElement>('run');
 const resultsEl = $('results');
 let worker: Worker | undefined;
-let runVersion = 0;
+let resultsVersion = -1;
 store.subscribe(() => {
-  runVersion++;
-  resultsEl.classList.toggle('stale', resultsEl.dataset.ran === 'true');
+  resultsEl.classList.toggle('stale', resultsEl.dataset.ran === 'true' && store.version !== resultsVersion);
 });
 
 runButton.addEventListener('click', () => {
@@ -222,7 +278,8 @@ runButton.addEventListener('click', () => {
   message('Running…');
   const started = performance.now();
   const model = structuredClone(store.model);
-  const version = runVersion;
+  const runRoutes = updateRoutes();
+  const version = store.version;
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     const msg = ev.data;
     if (msg.type === 'progress') {
@@ -240,10 +297,18 @@ runButton.addEventListener('click', () => {
     resultsEl.innerHTML = `<p class="stale-note">The model changed after this run. Run again to update.</p>`
       + resultsHtml(msg.result, model.entityLabel);
     resultsEl.dataset.ran = 'true';
-    resultsEl.classList.toggle('stale', version !== runVersion);
-    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    resultsVersion = version;
+    resultsEl.classList.toggle('stale', version !== store.version);
+    if (msg.result.log) {
+      player.load(msg.result.log, model, runRoutes, msg.result.logEnd ?? model.run.hours * 60);
+      playerVersion = version;
+      if (version !== store.version) player.markStale();
+      if ((msg.result.logEnd ?? Infinity) < model.run.hours * 60) {
+        message(`Done. The replay covers the first ${(msg.result.logEnd! / 60).toFixed(1)} hours; KPIs cover the whole run.`);
+      }
+    }
   };
-  worker.postMessage({ model } satisfies WorkerRequest);
+  worker.postMessage({ model, recordLog: true, distances: routeDistances(runRoutes) } satisfies WorkerRequest);
 });
 
 // First paint.

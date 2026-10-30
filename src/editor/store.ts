@@ -26,6 +26,8 @@ function clone<T>(v: T): T {
 export class Store {
   model: ModelSpec;
   selection: Selection = null;
+  /** Goes up on every change to the model itself (not on selection changes). */
+  version = 0;
   private past: ModelSpec[] = [];
   private future: ModelSpec[] = [];
   private gesture: ModelSpec | null = null;
@@ -41,7 +43,8 @@ export class Store {
     return () => this.listeners.delete(fn);
   }
 
-  private emit() {
+  private emit(modelChanged = true) {
+    if (modelChanged) this.version++;
     for (const fn of this.listeners) fn();
   }
 
@@ -93,7 +96,7 @@ export class Store {
 
   select(sel: Selection) {
     this.selection = sel;
-    this.emit();
+    this.emit(false);
   }
 
   undo() {

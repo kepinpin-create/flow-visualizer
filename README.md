@@ -6,8 +6,8 @@ An open-source, browser-based queuing and flow simulator. Upload a 2D floor plan
 enter arrival and service data, and watch an animated simulation with KPIs checked against queuing theory.
 Runs entirely in the browser; no install, account or API key.
 
-> **Status: v0.1 in progress.** Done: simulation engine with theory checks, and the floor-plan editor
-> (upload, calibration, blocks, links, walls, undo). Next: wall-aware walking paths and the animated replay.
+> **Status: v0.1 feature-complete, in testing.** Simulation engine with theory checks, floor-plan editor,
+> walking paths around walls, and an animated replay.
 
 ## Using the editor
 
@@ -19,7 +19,11 @@ Runs entirely in the browser; no install, account or API key.
 5. Select anything to edit it on the right. Drag to move; corner handle resizes, top handle rotates.
    Delete removes, Ctrl+D duplicates, Ctrl+Z / Ctrl+Y undo and redo.
 6. **Checks** lists what blocks the run; click an item to jump to its block. **Run simulation** when it is ready.
-7. **Save model** downloads one JSON file with the plan image inside; **Open model…** loads it back.
+   Faint blue lines show the walking path of each link; they follow door gaps and update as you edit.
+   A red dotted path means the walls leave no way through.
+7. After a run, the plan replays the first replication: dots walk, queue and get served. Use play/pause,
+   the speed menu (1× is real time) and the timeline to move through the day.
+8. **Save model** downloads one JSON file with the plan image inside; **Open model…** loads it back.
 
 ## Run it locally
 
@@ -67,6 +71,8 @@ Jackson network with a split, all within 5% of theory over long runs.
 ```
 src/model/      model spec types, JSON Schema, validation (FR-15)
 src/editor/     plan upload, SVG canvas, palette and properties panel, undo/redo store
+src/routing/    walking paths around walls (grid + A*)
+src/replay/     animated replay of the event log
 src/ui/         results dashboard
 src/engine/     discrete-event engine, distributions, replications, Web Worker
 src/analysis/   Erlang-C, traffic equations, M/M/c eligibility

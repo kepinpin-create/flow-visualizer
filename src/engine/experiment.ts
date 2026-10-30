@@ -67,7 +67,12 @@ export interface ExperimentResult {
   warnings: Warning[];
   /** Entity steps of the first replication, for the replay. */
   log?: LogEvent[];
+  /** Time, minutes, up to which the log is complete (it is cut off on very long runs). */
+  logEnd?: number;
 }
+
+/** Most entity steps kept for the replay; longer runs are replayed up to this point. */
+export const LOG_LIMIT = 300_000;
 
 export interface ExperimentOptions {
   distance?: DistanceFn;
@@ -190,7 +195,15 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
     });
   }
 
-  return { replications: n, stations, system, theory, little, warnings, log };
+  let logEnd = model.run.hours * 60;
+  if (log && log.length > LOG_LIMIT) {
+    // Cut at a time boundary so no moment is half recorded.
+    const cut = log[LOG_LIMIT].t;
+    log = log.filter((e) => e.t < cut);
+    logEnd = cut;
+  }
+
+  return { replications: n, stations, system, theory, little, warnings, log, logEnd };
 }
 
 function littleCheck(scope: string, L: number, lambdaW: number): LittleCheck {
