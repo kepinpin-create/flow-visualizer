@@ -9,6 +9,7 @@ import type { WorkerRequest, WorkerResponse } from './engine/worker';
 import SimulationWorker from './engine/worker?worker';
 import { DEFAULT_METERS_PER_PIXEL, type BlockType, type ModelSpec } from './model/types';
 import { validateModel, type Issue } from './model/validate';
+import { setupAi } from './ai/ui';
 import { Player } from './replay/player';
 import { computeRoutes, routeDistances, type Route } from './routing/pathfinder';
 import bank from './templates/bank.json';
@@ -224,6 +225,8 @@ planFile.addEventListener('change', async () => {
     canvas.fit();
     canvas.setTool('calibrate');
     message('Plan loaded. Now set its scale: click two points whose real distance you know.');
+    // Offer to let the AI place the blocks; nothing is sent unless the user says yes.
+    ai.offerAfterUpload();
   } catch (e) {
     message((e as Error).message || 'The plan could not be read.', 'error');
   }
@@ -267,6 +270,12 @@ function loadModelText(text: string, source: string, keepImage?: string) {
   message(`Loaded ${source}.`);
   return true;
 }
+
+// ---- AI (bring your own key) ----
+const ai = setupAi({ store, message, afterChange: () => requestAnimationFrame(() => canvas.fit()) });
+$('ai-layout').addEventListener('click', () => ai.suggestLayout());
+$('ai-fill').addEventListener('click', () => ai.fillFromText());
+$('ai-settings').addEventListener('click', () => ai.openSettings());
 
 // ---- JSON view ----
 const IMAGE_PLACEHOLDER = '(embedded plan image)';

@@ -21,6 +21,28 @@ Nothing to install, and it works on Windows, macOS, Linux, ChromeOS and tablets.
 - **Touch:** drag blocks from the palette with a finger, pinch with two fingers to zoom and pan.
 - **Private:** plans and models never leave your browser.
 
+## AI helpers (optional, your own key)
+
+The tool works fully without AI. With a key, two shortcuts appear in the toolbar:
+
+- **AI layout** sends the uploaded plan to the AI, which proposes blocks and links. Everything it adds is marked
+  **AI** on the plan. Numbers the plan does not show (arrival rates, service times) are left as placeholders and
+  listed in **Checks**; the run stays blocked until you fill or confirm them. Undo removes the whole suggestion.
+- **AI fill** turns a description such as "about 30 customers an hour, 3 tellers, 4 minutes each" into proposed
+  changes. You tick which ones to apply.
+
+The AI only ever returns JSON in the model format, which is schema-checked; it never writes or runs simulation code.
+
+| Provider (⚙ AI settings) | Default model | Get a key |
+| --- | --- | --- |
+| Meta Model API (default) | `muse-spark-1.3` | [dev.meta.ai](https://dev.meta.ai/) |
+| Anthropic Claude | `claude-opus-5-5` | [platform.claude.com](https://platform.claude.com/) |
+| Other, OpenAI-compatible | your choice (must read images and return JSON) | OpenAI, Gemini, OpenRouter, or a local Ollama / llama.cpp server |
+
+Keys stay in your browser (in memory, or on this device if you tick "Remember"). Requests go straight from the
+browser to the provider; there is no server in between. The plan image and your notes are sent to the provider you
+pick, so for confidential layouts use a local model.
+
 ## Using the editor
 
 1. **Upload plan…** takes a PNG, JPG or PDF (first page). The Calibrate tool opens: click two points whose real
@@ -49,6 +71,9 @@ npm test           # engine benchmarks and validation tests
 npm run build      # production build into dist/
 npm run preview    # serve the build, including offline mode, at http://localhost:4173
 ```
+
+On Windows PowerShell, if `npm` fails with "running scripts is disabled on this system", type `npm.cmd`
+instead (for example `npm.cmd run dev`), or use Command Prompt.
 
 ### Deploying
 

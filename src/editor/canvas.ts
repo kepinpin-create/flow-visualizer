@@ -16,6 +16,18 @@ export interface CanvasHooks {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const PLAN_OPACITY_KEY = 'flow-visualizer.planOpacity';
+const DEFAULT_PLAN_OPACITY = 40;
+
+function readPlanOpacity(): number {
+  try {
+    const v = Number(localStorage.getItem(PLAN_OPACITY_KEY));
+    if (v >= 10 && v <= 100) return v;
+  } catch {
+    // storage blocked: use the default
+  }
+  return DEFAULT_PLAN_OPACITY;
+}
 const MIN_SIZE_M = 0.3;
 
 type Drag =
@@ -42,6 +54,10 @@ export class PlanCanvas {
   private calib: Point[] = [];
   private pointer: Point | null = null;
   private imageHref = '';
+  private planControls: HTMLElement;
+  /** Plan image visibility, percent. Faded by default so blocks stand out. */
+  private planOpacity = readPlanOpacity();
+  private planShown = true;
   tool: Tool = 'select';
   /** Blocks to outline in red because validation flagged them. */
   flagged = new Set<string>();
@@ -77,6 +93,31 @@ export class PlanCanvas {
     this.grid = this.svg.querySelector('.plan-grid')!;
     this.content = this.svg.querySelector('.content')!;
     this.overlay = this.svg.querySelector('.overlay')!;
+
+    // Fade or hide the uploaded plan so the blocks on top stay readable.
+    this.planControls = document.createElement('div');
+    this.planControls.className = 'plan-controls';
+    this.planControls.innerHTML = `
+      <label class="inline">Plan <input type="range" min="10" max="100" step="5" aria-label="Plan visibility"></label>
+      <label class="inline"><input type="checkbox" checked> Show</label>`;
+    host.appendChild(this.planControls);
+    const [fade, show] = this.planControls.querySelectorAll('input');
+    fade.value = String(this.planOpacity);
+    fade.addEventListener('input', () => {
+      this.planOpacity = Number(fade.value);
+      show.checked = true;
+      this.planShown = true;
+      this.applyPlanLook();
+      try {
+        localStorage.setItem(PLAN_OPACITY_KEY, fade.value);
+      } catch {
+        // per-viewer convenience only
+      }
+    });
+    show.addEventListener('change', () => {
+      this.planShown = show.checked;
+      this.applyPlanLook();
+    });
 
     this.svg.addEventListener('pointerdown', (e) => this.onDown(e));
     this.svg.addEventListener('pointermove', (e) => this.onMove(e));
@@ -450,6 +491,11 @@ export class PlanCanvas {
 
   // ---- drawing ----
 
+  private applyPlanLook() {
+    this.image.style.display = this.imageHref && this.planShown ? '' : 'none';
+    this.image.style.opacity = String(this.planOpacity / 100);
+  }
+
   private applyView() {
     this.world.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.k})`);
     for (const fn of this.viewListeners) fn();
@@ -476,8 +522,9 @@ export class PlanCanvas {
       this.imageHref = href;
       this.image.setAttribute('href', href);
     }
-    this.image.style.display = href ? '' : 'none';
     this.grid.style.display = href ? 'none' : '';
+    this.planControls.hidden = !href;
+    this.applyPlanLook();
     this.applyView();
 
     const k = this.view.k;
