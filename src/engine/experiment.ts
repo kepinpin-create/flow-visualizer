@@ -1,5 +1,5 @@
-import { erlangC, losslessStations, mmcStations, trafficRates } from '../analysis/queueing';
-import { mean } from './distributions';
+import { erlangC, losslessStations, mmcStations, serversClearOf, trafficRates } from '../analysis/queueing';
+import { drawnMean } from './distributions';
 import type { ModelSpec } from '../model/types';
 import { runReplication, type DistanceFn, type LogEvent, type ReplicationResult } from './simulator';
 import { estimate, type Estimate } from './stats';
@@ -51,6 +51,8 @@ export interface LittleCheck {
   lambdaW: number;
   errorPct: number;
   pass: boolean;
+  /** Set when the check does not apply to this run, with the reason. */
+  skipped?: string;
 }
 
 export interface Warning {
@@ -63,6 +65,8 @@ export interface ExperimentResult {
   stations: StationSummary[];
   system: SystemSummary;
   theory: TheoryCheck[];
+  /** M/M/c stations left out of the theory check, with the reason. */
+  theorySkipped: string[];
   little: LittleCheck[];
   warnings: Warning[];
   /** Entity steps of the first replication, for the replay. */
@@ -123,16 +127,33 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
     balkRate: over((r) => r.system.balkRate),
   };
 
-  // FR-24: theory check on every M/M/c station.
+  // Offered load λ·E[S]/c is exact where no line turns entities away; elsewhere only
+  // the simulated value is meaningful. At 1 or more the station never settles.
   const rates = trafficRates(model);
+  const lossless = losslessStations(model);
+  const offered = new Map<string, number>();
+  for (const b of model.blocks) {
+    if (b.type === 'server' && lossless.has(b.id)) offered.set(b.id, ((rates.get(b.id) ?? 0) * drawnMean(b.service)) / b.servers);
+  }
+  const overloaded = new Set([...offered].filter(([, load]) => load >= 1).map(([id]) => id));
+  const overloadedNames = stations.filter((s) => overloaded.has(s.id)).map((s) => s.label || s.id).join(', ');
+  const clear = serversClearOf(model, overloaded);
+
+  // FR-24: theory check on every M/M/c station.
   const eligible = mmcStations(model);
   const theory: TheoryCheck[] = [];
+  const theorySkipped: string[] = [];
   for (const s of stations) {
     if (!eligible.has(s.id)) continue;
     const block = model.blocks.find((b) => b.id === s.id);
     if (block?.type !== 'server') continue;
+    if (overloaded.has(s.id)) continue;
+    if (!clear.has(s.id)) {
+      theorySkipped.push(`${s.label || s.id} is not compared: ${overloadedNames} before it is overloaded, so fewer people get through, and more evenly, than Erlang-C assumes.`);
+      continue;
+    }
     const lambda = rates.get(s.id) ?? 0;
-    const mu = 1 / mean(block.service);
+    const mu = 1 / drawnMean(block.service);
     const q = erlangC(lambda, mu, block.servers);
     if (!Number.isFinite(q.wq)) continue;
     const wqErr = pctError(s.wqMean.mean, q.wq);
@@ -160,29 +181,31 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
   const meanOf = (f: (r: ReplicationResult) => number) => reps.reduce((sum, r) => sum + f(r), 0) / reps.length;
   const sysL = meanOf((r) => r.system.L);
   const sysLW = meanOf((r) => r.system.departureRate) * meanOf((r) => r.system.wAllDepartures);
-  little.push(littleCheck('Whole system', sysL, sysLW));
+  const whole = littleCheck('Whole system', sysL, sysLW);
+  // L = λW needs a system that settles; with an overloaded station the count keeps climbing.
+  if (overloaded.size) whole.skipped = `${overloadedNames} is overloaded, so the number of people keeps growing and L = λW does not apply to the whole system.`;
+  little.push(whole);
   reps[0].stations.forEach((s, i) => {
     const L = meanOf((r) => r.stations[i].lqMean);
     const lw = meanOf((r) => r.stations[i].arrivalRate) * meanOf((r) => r.stations[i].wqMean);
-    little.push(littleCheck(`Line at ${s.label || s.id}`, L, lw));
+    const line = littleCheck(`Line at ${s.label || s.id}`, L, lw);
+    // Its waits count only people served before the end, while the line keeps growing.
+    if (overloaded.has(s.id)) line.skipped = `${s.label || s.id} is overloaded, so its line keeps growing and L = λW does not apply to it.`;
+    little.push(line);
   });
 
-  // FR-26: utilization warnings. Offered load λ·E[S]/c is exact where no line
-  // turns entities away; elsewhere only the simulated value is meaningful.
+  // FR-26: utilization warnings.
   const warnings: Warning[] = [];
-  const lossless = losslessStations(model);
   for (const s of stations) {
-    const block = model.blocks.find((b) => b.id === s.id);
-    if (block?.type !== 'server') continue;
     const name = s.label || s.id;
-    const offered = lossless.has(s.id) ? ((rates.get(s.id) ?? 0) * mean(block.service)) / block.servers : undefined;
-    if (offered !== undefined && offered >= 1) {
+    const load = offered.get(s.id);
+    if (load !== undefined && load >= 1) {
       warnings.push({
         blockId: s.id,
-        message: `${name} is unstable: work arrives at ${(offered * 100).toFixed(0)}% of its capacity, so the line grows for as long as the run lasts.`,
+        message: `${name} is unstable: work arrives at ${(load * 100).toFixed(0)}% of its capacity, so the line grows for as long as the run lasts.`,
       });
-    } else if (Math.max(s.utilization.mean, offered ?? 0) >= 0.95) {
-      const rho = Math.max(s.utilization.mean, offered ?? 0);
+    } else if (Math.max(s.utilization.mean, load ?? 0) >= 0.95) {
+      const rho = Math.max(s.utilization.mean, load ?? 0);
       warnings.push({
         blockId: s.id,
         message: `${name} is ${(rho * 100).toFixed(1)}% busy. At ρ ≥ 0.95 queues swing widely and settle slowly, so results depend heavily on run length.`,
@@ -203,7 +226,7 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
     logEnd = cut;
   }
 
-  return { replications: n, stations, system, theory, little, warnings, log, logEnd };
+  return { replications: n, stations, system, theory, theorySkipped, little, warnings, log, logEnd };
 }
 
 function littleCheck(scope: string, L: number, lambdaW: number): LittleCheck {

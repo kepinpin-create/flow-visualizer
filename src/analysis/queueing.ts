@@ -1,4 +1,4 @@
-import { interarrival, isExponential, mean } from '../engine/distributions';
+import { drawnMean, interarrival, isExponential } from '../engine/distributions';
 import type { Block, ModelSpec } from '../model/types';
 
 /** Erlang-C results for an M/M/c station; rates per minute, times in minutes. */
@@ -39,7 +39,7 @@ export function trafficRates(model: ModelSpec, opts: { averageCapped?: boolean }
   const runMin = model.run.hours * 60;
   for (const b of model.blocks) {
     if (b.type !== 'source') continue;
-    const rate = (b.groupSize ?? 1) / mean(interarrival(b.arrival));
+    const rate = (b.groupSize ?? 1) / drawnMean(interarrival(b.arrival));
     if (b.maxArrivals === undefined) external.set(b.id, rate);
     else if (opts.averageCapped) external.set(b.id, Math.min(rate, b.maxArrivals / runMin));
   }
@@ -90,6 +90,15 @@ const losesNothing = (b: Block) => b.type !== 'queue' || (b.capacity === undefin
  */
 export function losslessStations(model: ModelSpec): Set<string> {
   return serversWhereUpstream(model, losesNothing);
+}
+
+/**
+ * Servers with none of `blocked` at or before them in the flow. An overloaded station
+ * holds people back and evens out who gets through, so stations after it no longer see
+ * the arrivals the traffic equations assume.
+ */
+export function serversClearOf(model: ModelSpec, blocked: Set<string>): Set<string> {
+  return serversWhereUpstream(model, (b) => !blocked.has(b.id));
 }
 
 /**
