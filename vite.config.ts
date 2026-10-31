@@ -9,6 +9,8 @@ function offlineServiceWorker(): Plugin {
   return {
     name: 'offline-service-worker',
     apply: 'build',
+    // Run after Vite writes the HTML pages, so they are in the bundle too.
+    enforce: 'post',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).filter((f) => !f.endsWith('.map')).sort();
       const hash = createHash('sha256');
@@ -18,7 +20,7 @@ function offlineServiceWorker(): Plugin {
         hash.update(item.type === 'chunk' ? item.code : typeof item.source === 'string' ? item.source : Buffer.from(item.source));
       }
       const version = hash.digest('hex').slice(0, 12);
-      // index.html is served as "./"; files copied from public/ are not in the bundle, so list them here.
+      // index.html (the landing page) is served as "./"; files copied from public/ are not in the bundle, so list them here.
       const precache = ['./', './icon.svg', './manifest.webmanifest', ...files.filter((f) => f !== 'index.html').map((f) => `./${f}`)];
       this.emitFile({
         type: 'asset',
@@ -44,7 +46,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
     // Page: try the network for the newest version, fall back to the cached copy offline.
-    event.respondWith(fetch(req).catch(() => caches.match('./', { ignoreSearch: true })));
+    event.respondWith(fetch(req).catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('./'))));
     return;
   }
   // Built files have content hashes in their names, so a cached copy is always right.
@@ -62,6 +64,10 @@ export default defineConfig({
   // A classic (non-module) worker loads in older Firefox and Safari too.
   worker: { format: 'iife' },
   // Syntax older browsers can parse: roughly Chrome/Edge 87+, Firefox 78+, Safari 14+.
-  build: { target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'] },
+  build: {
+    target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'],
+    // Two pages: the landing page and the editor.
+    rollupOptions: { input: { main: 'index.html', app: 'app.html' } },
+  },
   plugins: [offlineServiceWorker()],
 });

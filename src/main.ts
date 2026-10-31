@@ -1,4 +1,3 @@
-import './style.css';
 import { BLOCK_ORDER, BLOCK_STYLES, planExtent } from './editor/blocks';
 import { PlanCanvas, type Tool } from './editor/canvas';
 import { Inspector } from './editor/inspector';
@@ -216,6 +215,7 @@ templateSelect.value = '';
 function loadTemplate(name: string) {
   const t = templates[name];
   if (!t) return;
+  resetSimulation();
   store.replace(validateModel(t).model!);
   canvas.fit();
   message('Template loaded. Undo brings back what you had.');
@@ -283,6 +283,7 @@ function loadModelText(text: string, source: string, keepImage?: string) {
     return false;
   }
   if (keepImage && v.model.background?.file === IMAGE_PLACEHOLDER) v.model.background.file = keepImage;
+  resetSimulation();
   store.replace(v.model);
   canvas.fit();
   templateSelect.value = '';
@@ -379,6 +380,35 @@ store.subscribe(() => {
     canvas.setPreview(null);
     canvas.setMarkers(null);
   }
+});
+
+// ---- reset: forget the last run (replay dots, results, review, scorecard) ----
+const emptyResults = resultsEl.innerHTML;
+function resetSimulation(note?: string) {
+  const hadRun = player.loaded || resultsEl.dataset.ran === 'true';
+  worker?.terminate();
+  worker = undefined;
+  runButton.disabled = false;
+  player.clear();
+  scorecard.reset();
+  canvas.setPreview(null);
+  canvas.setMarkers(null);
+  resultsEl.innerHTML = emptyResults;
+  resultsEl.classList.remove('stale');
+  delete resultsEl.dataset.ran;
+  lastRun = null;
+  improved = false;
+  updateGuidance();
+  if (hadRun && note) message(note);
+}
+player.onReset = () => resetSimulation('Simulation reset. Run it again when the model is ready.');
+// A new floor plan makes the old run meaningless, so clear it instead of drawing its dots over the new plan.
+let planFileShown = store.model.background?.file;
+store.subscribe(() => {
+  const file = store.model.background?.file;
+  if (file === planFileShown) return;
+  planFileShown = file;
+  resetSimulation('New plan: the previous run was cleared.');
 });
 
 runButton.addEventListener('click', () => {
@@ -497,3 +527,14 @@ store.subscribe(updateGuidance);
 store.select(null);
 requestAnimationFrame(() => canvas.fit());
 canvas.setTool('select');
+
+// Deep links from the landing page: app.html?example=bank&run=1 opens a template and runs it.
+const params = new URLSearchParams(location.search);
+const example = params.get('example');
+if (example && templates[example]) {
+  templateSelect.value = example;
+  loadTemplate(example);
+  if (params.get('run') === '1') runButton.click();
+  // Drop the parameters so a reload keeps the user's edits instead of starting over.
+  history.replaceState(null, '', location.pathname);
+}

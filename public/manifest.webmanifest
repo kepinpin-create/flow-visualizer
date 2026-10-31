@@ -2,7 +2,7 @@
   "name": "Flow Visualizer",
   "short_name": "Flow Visualizer",
   "description": "Draw your flow on your real floor plan and see the queues in minutes.",
-  "start_url": "./",
+  "start_url": "./app.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f6f7f9",

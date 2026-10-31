@@ -63,7 +63,7 @@ export class Player {
         <span><i style="background:var(--dot-balk)"></i>Left (line full)</span>
       </span>
       <span class="stale badge warn" hidden>Model changed since this run</span>
-      <button type="button" class="close icon-only" aria-label="Hide replay" title="Hide replay"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>`;
+      <button type="button" class="reset" title="Clear the replay and results"><svg class="i" aria-hidden="true"><use href="#i-undo"/></svg>Reset simulation</button>`;
     host.appendChild(this.bar);
     const q = <T extends HTMLElement>(s: string) => this.bar.querySelector(s) as T;
     this.els = {
@@ -77,7 +77,7 @@ export class Player {
       this.t = Number(this.els.range.value);
       this.draw();
     });
-    q('.close').addEventListener('click', () => this.hide());
+    q('.reset').addEventListener('click', () => this.onReset());
     plan.onViewChange(() => this.draw());
     new ResizeObserver(() => this.draw()).observe(host);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.readColors());
@@ -125,10 +125,18 @@ export class Player {
     if (this.replay) this.els.stale.hidden = false;
   }
 
-  hide() {
+  /** Called by the Reset simulation button; the app clears the results too. */
+  onReset: () => void = () => this.clear();
+
+  /** Drops the replay: no dots, no bar, until the next run. */
+  clear() {
     this.pause();
+    this.replay = null;
+    this.t = 0;
+    this.els.stale.hidden = true;
     this.bar.hidden = true;
     this.canvas.hidden = true;
+    this.draw();
   }
 
   play() {

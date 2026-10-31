@@ -66,7 +66,7 @@ and Linux: line endings are fixed by `.gitattributes`, and CI checks all three o
 
 ```bash
 npm ci             # exact versions from package-lock.json
-npm run dev        # open http://localhost:5173
+npm run dev        # landing page at http://localhost:5173, the editor at /app.html
 npm test           # engine benchmarks and validation tests
 npm run build      # production build into dist/
 npm run preview    # serve the build, including offline mode, at http://localhost:4173
@@ -113,6 +113,8 @@ Jackson network with a split, all within 5% of theory over long runs.
 ## Project layout
 
 ```
+index.html      landing page (src/landing.ts, src/landing.css)
+app.html        the editor (src/main.ts); app.html?example=bank&run=1 opens a template and runs it
 src/model/      model spec types, JSON Schema, validation (FR-15)
 src/editor/     plan upload, SVG canvas, palette and properties panel, undo/redo store
 src/routing/    walking paths around walls (grid + A*)

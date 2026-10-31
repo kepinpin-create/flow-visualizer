@@ -166,6 +166,7 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(-
   padding: var(--sp-2) var(--sp-4); background: var(--panel); border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: var(--sp-2); }
+.brand-link { display: inline-flex; align-items: center; gap: var(--sp-2); color: inherit; text-decoration: none; border-radius: var(--r-ctl); }
 .brand h1 { margin: 0; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; }
 .tag {
   font-size: var(--fs-xs); font-weight: 500; color: var(--muted);
@@ -515,4 +516,16 @@ tbody tr:hover { background: var(--panel-2); }
 .criteria p { margin: 0; color: var(--muted); font-size: var(--fs-sm); max-width: 75ch; }
 @media (max-width: 600px) {
   .scorecard { grid-template-columns: 1fr; }
+}
+
+/* ---- page transitions: landing ↔ editor crossfade (browsers without support just switch) ---- */
+@view-transition { navigation: auto; }
+.brand-link { view-transition-name: brand; }
+::view-transition-old(root) { animation: 160ms var(--ease-out) both page-out; }
+::view-transition-new(root) { animation: 260ms var(--ease-out) 60ms both page-in; }
+::view-transition-group(brand) { animation-duration: 300ms; animation-timing-function: var(--ease-out); }
+@keyframes page-out { to { opacity: 0; } }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
