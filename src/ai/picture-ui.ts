@@ -3,6 +3,7 @@
 import type { ModelSpec } from '../model/types';
 import type { Dot } from '../replay/replay';
 import { generatePicture, PICTURE_STYLES, picturePrompt, pictureSize, renderPlanPicture, type PictureStyle } from './picture';
+import { technicalDrawingSvg } from '../export/drawing';
 import { loadSettings } from './settings';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -22,7 +23,8 @@ export function setupPicture(opts: {
   dlg.innerHTML = `<form method="dialog" class="ai-form"><h2 id="ai-picture-title">AI picture of this layout</h2><div class="ai-body"></div></form>`;
   document.body.appendChild(dlg);
   let controller: AbortController | null = null;
-  let gallery: { url: string; caption: string }[] = [];
+  /** Newest first. An exact drawing also keeps its SVG for sharp printing. */
+  let gallery: { url: string; caption: string; svg?: string }[] = [];
 
   function open() {
     const { model, optimized } = opts.layout();
@@ -55,18 +57,52 @@ export function setupPicture(opts: {
         <button type="button" data-act="settings">AI settings</button>
         <span class="grow"></span>
         <button value="close" formnovalidate>Close</button>
+        <button type="button" data-act="drawing" title="Exact plan with labels, sizes and dimensions, drawn by the app. Free, no key needed.">Technical drawing</button>
         <button type="button" class="primary" data-act="make">Make picture</button>
       </div>`;
     dlg.showModal();
   }
 
   function galleryHtml(): string {
-    return gallery.map((g, i) => `
+    return gallery.map((g, i) => g.svg
+      ? `
+      <figure class="picture">
+        <img src="${g.url}" alt="Technical drawing of the layout">
+        <figcaption><span class="badge ok">Exact drawing</span> ${esc(g.caption)}
+          <a href="${g.url}" download="layout-drawing-${i + 1}.png">PNG</a>
+          <a href="data:image/svg+xml;charset=utf-8,${encodeURIComponent(g.svg)}" download="layout-drawing-${i + 1}.svg">SVG</a></figcaption>
+      </figure>`
+      : `
       <figure class="picture">
         <img src="${g.url}" alt="AI illustration of the layout">
         <figcaption><span class="badge warn">AI illustration</span> ${esc(g.caption)}
           <a href="${g.url}" download="layout-illustration-${i + 1}.png">Download</a></figcaption>
       </figure>`).join('');
+  }
+
+  /** Draws the exact technical drawing, rasterized to PNG for slides; the SVG stays for printing. */
+  async function addDrawing() {
+    const { model, optimized } = opts.layout();
+    const context = dlg.querySelector<HTMLInputElement>('[name="context"]')!.value.trim();
+    const title = optimized ? 'Optimized layout' : 'Current layout';
+    const svg = technicalDrawingSvg(model, {
+      title,
+      subtitle: context || `Floor plan for ${model.entityLabel}s`,
+      date: new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD in the viewer's own time zone
+    });
+    // The load event, not img.decode(), which stalls while the tab is in the background.
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('the drawing could not be rendered'));
+      el.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d')!.drawImage(img, 0, 0);
+    gallery = [{ url: canvas.toDataURL('image/png'), caption: `${title}, exact technical drawing`, svg }, ...gallery].slice(0, 6);
+    dlg.querySelector('.picture-out')!.innerHTML = galleryHtml();
   }
 
   dlg.addEventListener('close', () => controller?.abort());
@@ -75,6 +111,18 @@ export function setupPicture(opts: {
     if (act === 'settings') {
       dlg.close();
       opts.openSettings();
+      return;
+    }
+    if (act === 'drawing') {
+      const status = dlg.querySelector<HTMLElement>('.ai-status')!;
+      try {
+        await addDrawing();
+        status.className = 'ai-status';
+        status.textContent = 'Technical drawing added. Every label and size comes from the model.';
+      } catch (err) {
+        status.className = 'ai-status bad';
+        status.textContent = `The drawing could not be made: ${(err as Error).message}`;
+      }
       return;
     }
     if (act !== 'make') return;
