@@ -19,6 +19,7 @@ export interface CanvasHooks {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PLAN_OPACITY_KEY = 'flow-visualizer.planOpacity';
 const DEFAULT_PLAN_OPACITY = 40;
+const SHOW_PATHS_KEY = 'flow-visualizer.showPaths';
 
 function readPlanOpacity(): number {
   try {
@@ -165,9 +166,25 @@ export class PlanCanvas {
     this.planControls.className = 'plan-controls';
     this.planControls.innerHTML = `
       <label class="inline">Plan <input type="range" min="10" max="100" step="5" aria-label="Plan visibility"></label>
-      <label class="inline"><input type="checkbox" checked> Show</label>`;
+      <label class="inline"><input type="checkbox" checked> Show</label>
+      <label class="inline" title="Walking paths between blocks"><input type="checkbox" checked> Paths</label>`;
     host.appendChild(this.planControls);
-    const [fade, show] = this.planControls.querySelectorAll('input');
+    const [fade, show, paths] = this.planControls.querySelectorAll('input');
+    try {
+      paths.checked = localStorage.getItem(SHOW_PATHS_KEY) !== '0';
+    } catch {
+      // storage blocked: paths stay on
+    }
+    const applyPaths = () => this.svg.classList.toggle('hide-paths', !paths.checked);
+    applyPaths();
+    paths.addEventListener('change', () => {
+      applyPaths();
+      try {
+        localStorage.setItem(SHOW_PATHS_KEY, paths.checked ? '1' : '0');
+      } catch {
+        // per-viewer convenience only
+      }
+    });
     fade.value = String(this.planOpacity);
     fade.addEventListener('input', () => {
       this.planOpacity = Number(fade.value);

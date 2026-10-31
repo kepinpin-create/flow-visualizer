@@ -320,6 +320,7 @@ svg.plan[data-tool='link'] .block { cursor: pointer; }
 .marker.overflow > path:first-of-type { fill: var(--warn-bg); }
 .marker.uturn { stroke: var(--uturn); }
 .route.no-path { stroke: var(--bad); stroke-dasharray: 2 6; stroke-opacity: 0.7; }
+.hide-paths .route { display: none; }
 /* Current / Optimized layout switch, top centre of the plan. */
 .view-switch {
   position: absolute; top: var(--sp-2); left: 50%; transform: translateX(-50%); display: inline-flex;
