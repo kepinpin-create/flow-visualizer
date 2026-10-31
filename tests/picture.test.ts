@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generatePicture, picturePrompt, pictureSize } from '../src/ai/picture';
+import { generatePicture, PICTURE_STYLES, picturePrompt, pictureSize } from '../src/ai/picture';
 import type { Dot } from '../src/replay/replay';
 import bar from '../src/templates/bar.json';
 import { valid } from './helpers';
@@ -23,6 +23,24 @@ describe('AI picture prompt', () => {
       { id: 1, x: 0, y: 0, state: 'wait' }, { id: 2, x: 0, y: 0, state: 'wait' }, { id: 3, x: 0, y: 0, state: 'service' },
     ];
     expect(picturePrompt(model, 'topdown', dots, '')).toMatch(/orange dots wait in line \(2\), green dots are being served \(1\)/);
+  });
+
+  it('sends every rule of the chosen style guide, so pictures in one style stay consistent', () => {
+    for (const style of Object.keys(PICTURE_STYLES) as (keyof typeof PICTURE_STYLES)[]) {
+      const p = picturePrompt(model, style, [], '');
+      for (const rule of PICTURE_STYLES[style].guide) expect(p).toContain(`- ${rule}`);
+    }
+    const plan = picturePrompt(model, 'sketch', [], '');
+    expect(plan).toMatch(/2D architectural floor plan/);
+    expect(plan).toMatch(/exactly top-down and flat .* no isometric angle/);
+  });
+
+  it('writes area names from the model on the 2D plan only, never numbers', () => {
+    const plan = picturePrompt(model, 'sketch', [], '');
+    expect(plan).toMatch(/"Bartender"/);
+    expect(plan).toMatch(/Write each area's name, exactly as quoted/);
+    expect(plan).toMatch(/no other text, numbers or measurements|any other text, numbers or measurements/);
+    expect(picturePrompt(model, 'interior', [], '')).toMatch(/Do not include the colored shapes, dots, labels, text/);
   });
 
   it('matches the plan shape', () => {

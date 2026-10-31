@@ -8,18 +8,46 @@ import { AiError, type AiSettings } from './providers';
 
 export type PictureStyle = 'interior' | 'topdown' | 'sketch';
 
-export const PICTURE_STYLES: Record<PictureStyle, { name: string; ask: string }> = {
+/**
+ * A fixed style guide per style, so every picture in a style looks like one series
+ * (before and after an optimization, for example). Each line is one rule.
+ */
+export const PICTURE_STYLES: Record<PictureStyle, { name: string; guide: string[]; labelAreas?: boolean }> = {
   interior: {
     name: 'Realistic interior (3/4 view)',
-    ask: 'a photorealistic interior photograph from a raised three-quarter angle, natural lighting, real furniture and materials',
+    guide: [
+      'A photorealistic interior photograph.',
+      'Camera: raised three-quarter view from the entrance side, about 4 m high, wide lens, the whole space in frame.',
+      'Light: soft, even daylight mixed with neutral indoor light. No night scene, no dramatic shadows.',
+      'Colours and materials: white walls, light grey floor, light oak wood, muted blue accents.',
+      'Furniture: service points as plain modern counters or desks, waiting lines with chrome posts and dark rope barriers, seating as simple modern chairs.',
+      'People: small in the frame, everyday clothes, natural poses, no close-up faces; staff in plain navy uniforms.',
+    ],
   },
   topdown: {
     name: 'Realistic top-down',
-    ask: 'a photorealistic top-down (bird’s-eye) view of the furnished space, as if the roof were removed',
+    guide: [
+      'A photorealistic top-down view, as if the roof were removed.',
+      'Camera: straight overhead, pointing straight down, no tilt or perspective; the whole space fills the frame.',
+      'Light: flat, even midday light with short soft shadows.',
+      'Colours and materials: white walls shown as clean cut tops, light grey floor, light oak wood, muted blue accents.',
+      'Furniture: plain modern counters and desks, rope barriers for lines, simple chairs.',
+      'People: seen from above as small figures in everyday clothes; staff in plain navy uniforms.',
+    ],
   },
   sketch: {
-    name: 'Architect sketch',
-    ask: 'an architect’s isometric presentation sketch with soft watercolor shading',
+    name: '2D floor plan (architect)',
+    labelAreas: true,
+    guide: [
+      'A clean 2D architectural floor plan drawing, like a CAD plan printed on paper.',
+      'View: exactly top-down and flat (orthographic). No perspective, no 3D, no isometric angle, no shading or shadows.',
+      'Background: pure white, nothing around the plan.',
+      'Walls: solid black, drawn with real thickness; doorways as gaps with a thin quarter-circle door swing.',
+      'Furniture: thin black outline symbols seen from above: counters and desks as rectangles, chairs as small squares, waiting lines as posts joined by a thin line.',
+      'Colour: black and grey lines only; a very light grey fill for counters is allowed. No other colours.',
+      'People: small grey circles seen from above, or none; never drawn figures.',
+      'Geometry: walls, doorways and every area at exactly the position and size in the plan; straight lines and right angles stay exact.',
+    ],
   },
 };
 
@@ -29,7 +57,7 @@ const PICTURE_PX = 1536;
 const WHAT_EACH_TYPE_IS: Record<BlockType, string> = {
   source: 'an entrance door',
   queue: 'a waiting line (rope barriers or floor markings)',
-  server: 'a service point (counter, desk, kiosk or machine), with one staff position per server',
+  server: 'a service point (counter, desk, kiosk or machine)',
   resource: 'staff or equipment that moves around',
   delay: 'an area where people spend time (seating, tables, forms)',
   decision: 'nothing (it is only where the flow splits; do not draw it)',
@@ -132,10 +160,14 @@ export function picturePrompt(model: ModelSpec, style: PictureStyle, people: Dot
   return `This is a floor plan of ${context.trim() || `a space where ${model.entityLabel}s are served`}, drawn from above.
 Black lines are walls; gaps in them are doorways. Each colored, labeled shape is an area:
 ${blocks.join('\n')}
-Render it as ${PICTURE_STYLES[style].ask}.
+Render it in this style, following every rule:
+${PICTURE_STYLES[style].guide.map((rule) => `- ${rule}`).join('\n')}
 Keep the room shape, walls, doorways and the position and size of every area exactly as in the plan. Do not add or remove areas.
 ${crowd}
-Do not include the colored shapes, dots, labels or any text in the result.`;
+${PICTURE_STYLES[style].labelAreas
+    ? `Write each area's name, exactly as quoted in the list above, in small clean black capitals inside or right next to that area, horizontal and easy to read. Do not draw the decision points or write any other text, numbers or measurements.
+Do not include the colored shapes, dots, logos or signs in the result, and show no outdoor view or extra rooms.`
+    : 'Do not include the colored shapes, dots, labels, text, logos or signs in the result, and show no outdoor view or extra rooms.'}`;
 }
 
 /** Picture aspect for the request, as Meta's "WxH" (it sets the ratio, not exact pixels). */
