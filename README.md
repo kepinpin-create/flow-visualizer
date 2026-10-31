@@ -9,6 +9,40 @@ Runs entirely in the browser; no install, account or API key.
 > **Status: v0.1 feature-complete, in testing.** Simulation engine with theory checks, floor-plan editor,
 > walking paths around walls, and an animated replay.
 
+## Use it
+
+Open it in a browser: **https://kepinpin-create.github.io/flow-visualizer/** (published from `main`).
+Nothing to install, and it works on Windows, macOS, Linux, ChromeOS and tablets.
+
+- **Offline:** after the first visit the app is cached and keeps working without internet. It can also be
+  installed as an app from the browser's address bar.
+- **Browsers:** current Chrome, Edge, Firefox and Safari. Older ones back to roughly Chrome 87, Firefox 78
+  and Safari 14 run the editor and simulator; PDF import needs a recent browser (PNG/JPG work everywhere).
+- **Touch:** drag blocks from the palette with a finger, pinch with two fingers to zoom and pan.
+- **Private:** plans and models never leave your browser.
+
+## AI helpers (optional, your own key)
+
+The tool works fully without AI. With a key, two shortcuts appear in the toolbar:
+
+- **AI layout** sends the uploaded plan to the AI, which proposes blocks and links. Everything it adds is marked
+  **AI** on the plan. Numbers the plan does not show (arrival rates, service times) are left as placeholders and
+  listed in **Checks**; the run stays blocked until you fill or confirm them. Undo removes the whole suggestion.
+- **AI fill** turns a description such as "about 30 customers an hour, 3 tellers, 4 minutes each" into proposed
+  changes. You tick which ones to apply.
+
+The AI only ever returns JSON in the model format, which is schema-checked; it never writes or runs simulation code.
+
+| Provider (⚙ AI settings) | Default model | Get a key |
+| --- | --- | --- |
+| Meta Model API (default) | `muse-spark-1.3` | [dev.meta.ai](https://dev.meta.ai/) |
+| Anthropic Claude | `claude-opus-5-5` | [platform.claude.com](https://platform.claude.com/) |
+| Other, OpenAI-compatible | your choice (must read images and return JSON) | OpenAI, Gemini, OpenRouter, or a local Ollama / llama.cpp server |
+
+Keys stay in your browser (in memory, or on this device if you tick "Remember"). Requests go straight from the
+browser to the provider; there is no server in between. The plan image and your notes are sent to the provider you
+pick, so for confidential layouts use a local model.
+
 ## Using the editor
 
 1. **Upload plan…** takes a PNG, JPG or PDF (first page). The Calibrate tool opens: click two points whose real
@@ -27,14 +61,24 @@ Runs entirely in the browser; no install, account or API key.
 
 ## Run it locally
 
-Needs Node.js 20 or newer.
+Needs Node.js 22.13 or newer (`.nvmrc` pins 24; with nvm, run `nvm use`). Works the same on Windows, macOS
+and Linux: line endings are fixed by `.gitattributes`, and CI checks all three on every push.
 
 ```bash
-npm install
-npm run dev        # open http://localhost:5173
+npm ci             # exact versions from package-lock.json
+npm run dev        # landing page at http://localhost:5173, the editor at /app.html
 npm test           # engine benchmarks and validation tests
 npm run build      # production build into dist/
+npm run preview    # serve the build, including offline mode, at http://localhost:4173
 ```
+
+On Windows PowerShell, if `npm` fails with "running scripts is disabled on this system", type `npm.cmd`
+instead (for example `npm.cmd run dev`), or use Command Prompt.
+
+### Deploying
+
+`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`.
+One-time setup in the repo: **Settings → Pages → Source: GitHub Actions**.
 
 ## How it works
 
@@ -69,6 +113,8 @@ Jackson network with a split, all within 5% of theory over long runs.
 ## Project layout
 
 ```
+index.html      landing page (src/landing.ts, src/landing.css)
+app.html        the editor (src/main.ts); app.html?example=bank&run=1 opens a template and runs it
 src/model/      model spec types, JSON Schema, validation (FR-15)
 src/editor/     plan upload, SVG canvas, palette and properties panel, undo/redo store
 src/routing/    walking paths around walls (grid + A*)

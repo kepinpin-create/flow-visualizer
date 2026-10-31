@@ -1,6 +1,6 @@
 import Ajv, { type ErrorObject } from 'ajv';
 import { modelSchema } from './schema';
-import type { Block, Distribution, ModelSpec } from './types';
+import { NEEDS_INPUT_LABELS, type Block, type Distribution, type ModelSpec } from './types';
 
 export interface Issue {
   blockId?: string;
@@ -152,6 +152,12 @@ export function validateModel(data: unknown): ValidationResult {
   }
 
   for (const b of model.blocks) {
+    if (b.needsInput?.length) {
+      errors.push({
+        blockId: b.id,
+        message: `Check the ${b.needsInput.map((n) => NEEDS_INPUT_LABELS[n]).join(' and ')} of "${b.label || b.id}". The AI could not read ${b.needsInput.length > 1 ? 'them' : 'it'} from the plan, so a placeholder is in place.`,
+      });
+    }
     if (b.type === 'resource') {
       warnings.push({ blockId: b.id, message: `Resource "${b.label || b.id}" is placed but not simulated in v0.1` });
     }
