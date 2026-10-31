@@ -3,7 +3,8 @@
 // and every block it adds keeps an "AI-detected" marker (PRD, Role of AI).
 import Ajv from 'ajv';
 import { linkProblem, newBlock, splitEvenly } from '../editor/blocks';
-import type { Block, BlockType, Link, ModelSpec, NeedsInput } from '../model/types';
+import { DEFAULT_METERS_PER_PIXEL, type Block, type BlockType, type Link, type ModelSpec, type NeedsInput } from '../model/types';
+import { cleanWalls, cutDoors, segsToWalls } from './walls';
 
 const BLOCK_TYPES: BlockType[] = ['source', 'queue', 'server', 'resource', 'delay', 'decision', 'sink'];
 const nullable = (type: 'number' | 'integer' | 'string') => ({ anyOf: [{ type }, { type: 'null' }] });
@@ -12,8 +13,26 @@ const nullable = (type: 'number' | 'integer' | 'string') => ({ anyOf: [{ type },
 export const layoutSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['blocks', 'links', 'notes'],
+  required: ['blocks', 'links', 'walls', 'doors', 'notes'],
   properties: {
+    walls: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['x1', 'y1', 'x2', 'y2'],
+        properties: { x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' } },
+      },
+    },
+    doors: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['x', 'y', 'widthM'],
+        properties: { x: { type: 'number' }, y: { type: 'number' }, widthM: nullable('number') },
+      },
+    },
     blocks: {
       type: 'array',
       items: {
@@ -55,6 +74,10 @@ export interface LayoutReply {
     arrivalsPerHour: number | null; minutes: number | null; capacity: number | null;
   }[];
   links: { from: string; to: string; probability: number | null }[];
+  /** Straight wall segments on the 0-1000 grid, drawn straight through doorways. */
+  walls: { x1: number; y1: number; x2: number; y2: number }[];
+  /** Doorway centers on the 0-1000 grid; the code cuts these gaps into the walls. */
+  doors: { x: number; y: number; widthM: number | null }[];
   notes: string;
 }
 
@@ -74,6 +97,11 @@ Rules:
 - arrivalsPerHour, minutes (service time for a server, time spent for a delay), capacity, and probability: give a number only when the plan or the user's notes state it. Otherwise null. Never guess these numbers.
 - widthM and depthM: the footprint in meters only if the plan shows dimensions; otherwise null.
 - ids: short lowercase words with underscores, unique. Labels: the name used on the plan, or a short plain name.
+- walls: the building's walls as straight segments on the same 0-1000 grid, along the middle of each wall: outer walls and walls between rooms.
+  Leave out furniture, counters, rope lines, text, dimension lines, scale bars and arrows. Draw walls straight through doorways; list the doorways in doors.
+  If the plan is a rough sketch, give your best reading of where the walls are.
+- doors: the center of every doorway or opening people walk through (on the grid), with widthM if the plan shows it, otherwise null.
+  Include entrances and exits and the doors of inner rooms.
 - notes: one to three short sentences on what you assumed and what was unclear.`;
 
 export function layoutPrompt(context: string): string {
@@ -108,6 +136,9 @@ export interface AppliedSuggestion {
   dropped: string[];
   /** Blocks whose numbers the AI could not read. */
   needsInput: number;
+  /** Walls added after clean-up, and doorways cut open in them. */
+  walls: number;
+  doors: number;
   notes: string;
 }
 
@@ -119,15 +150,31 @@ const positive = (n: number | null): n is number => n !== null && Number.isFinit
 
 /**
  * Turns a schema-valid reply into model changes. `mode: 'replace'` swaps out the
- * current blocks and links (walls and plan stay); 'add' keeps them.
+ * current blocks and links (and walls, when `withWalls`); 'add' keeps them.
  */
 export function applySuggestion(
   base: ModelSpec, reply: LayoutReply, plan: { width: number; height: number }, mode: 'replace' | 'add',
+  opts: { withWalls?: boolean } = {},
 ): AppliedSuggestion {
   const model: ModelSpec = JSON.parse(JSON.stringify(base));
   if (mode === 'replace') {
     model.blocks = [];
     model.links = [];
+  }
+
+  // Walls: rough AI lines → straight, joined walls with every doorway open.
+  let wallCount = 0;
+  let doorCount = 0;
+  if (opts.withWalls && reply.walls.length) {
+    const mpp = model.background?.metersPerPixel ?? DEFAULT_METERS_PER_PIXEL;
+    const gx = (v: number) => (Math.min(1000, Math.max(0, v)) / 1000) * plan.width;
+    const gy = (v: number) => (Math.min(1000, Math.max(0, v)) / 1000) * plan.height;
+    const cleaned = cleanWalls(reply.walls.map((w) => ({ x1: gx(w.x1), y1: gy(w.y1), x2: gx(w.x2), y2: gy(w.y2) })), mpp);
+    const { walls, opened } = cutDoors(cleaned, reply.doors.map((d) => ({ x: gx(d.x), y: gy(d.y), widthM: d.widthM })), mpp);
+    const fresh = segsToWalls(walls);
+    model.walls = mode === 'replace' ? fresh : [...(model.walls ?? []), ...fresh];
+    wallCount = fresh.length;
+    doorCount = opened;
   }
   const taken = new Set(model.blocks.map((b) => b.id));
   const idMap = new Map<string, string>();
@@ -210,7 +257,7 @@ export function applySuggestion(
     }
   }
 
-  return { model, addedBlocks: reply.blocks.length, addedLinks, dropped, needsInput, notes: reply.notes.trim() };
+  return { model, addedBlocks: reply.blocks.length, addedLinks, dropped, needsInput, walls: wallCount, doors: doorCount, notes: reply.notes.trim() };
 }
 
 /** Longest side of the image sent to the AI, in pixels: enough to read labels, cheap in tokens. */

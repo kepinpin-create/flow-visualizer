@@ -135,6 +135,10 @@ export function setupAi(opts: { store: Store; message: (t: string, kind?: 'info'
         <label class="check"><input type="radio" name="mode" value="replace" checked> Replace them</label>
         <label class="check"><input type="radio" name="mode" value="add"> Keep them and add the suggestion</label>
       </fieldset>` : ''}
+      <label class="check"><input type="checkbox" name="walls" checked>
+        <span>Also detect walls and doors
+          <small>Walls are straightened and joined, and every doorway is cut open, so walking paths go through doors.
+          ${store.model.walls?.length ? 'Replaces your current walls (Undo brings them back).' : ''}</small></span></label>
       <p class="note">Sends the plan image to <strong>${esc(PROVIDERS[s.provider].name)}</strong> (${esc(s.model)}).
         ${s.apiKey ? '' : 'You will be asked for your API key first. '}
         <button type="button" class="link-btn" data-act="settings">Change</button></p>
@@ -179,6 +183,7 @@ export function setupAi(opts: { store: Store; message: (t: string, kind?: 'info'
     const runBtn = layoutDlg.querySelector<HTMLButtonElement>('[data-act="run"]')!;
     const context = layoutDlg.querySelector<HTMLTextAreaElement>('[name="context"]')!.value;
     const mode = (layoutDlg.querySelector<HTMLInputElement>('[name="mode"]:checked')?.value ?? 'replace') as 'replace' | 'add';
+    const withWalls = layoutDlg.querySelector<HTMLInputElement>('[name="walls"]')?.checked ?? true;
     runBtn.disabled = true;
     status.className = 'ai-status';
     status.textContent = 'Reading the plan… this can take up to a minute.';
@@ -191,15 +196,21 @@ export function setupAi(opts: { store: Store; message: (t: string, kind?: 'info'
       });
       const reply = parseLayoutReply(text);
       if (!reply.blocks.length) throw new AiError(`The AI found no blocks on this plan.${reply.notes ? ` It said: ${reply.notes}` : ''}`);
-      const applied = applySuggestion(store.model, reply, planExtent(store.model), mode);
+      // Walls replace the current ones (the AI reads the whole plan); blocks follow the chosen mode.
+      const applied = applySuggestion(store.model, reply, planExtent(store.model), mode, { withWalls });
       store.commit((m) => {
         m.blocks = applied.model.blocks;
         m.links = applied.model.links;
+        if (withWalls && applied.walls) m.walls = applied.model.walls;
       });
       store.select(null);
       opts.afterChange();
       layoutDlg.querySelector('.ai-body')!.innerHTML = `
         <p><strong>Added ${applied.addedBlocks} blocks and ${applied.addedLinks} links</strong>, marked “AI” on the plan.</p>
+        ${withWalls ? (applied.walls
+          ? `<p>Detected <strong>${applied.walls} wall segments</strong> with <strong>${applied.doors} doorway${applied.doors === 1 ? '' : 's'}</strong> cut open.
+              Check them on the plan: delete a stray wall, or use the <strong>Door</strong> tool to open a missing doorway.</p>`
+          : '<p class="note">No walls were found on this plan. Draw them with the Wall tool if walking paths matter.</p>') : ''}
         ${applied.needsInput ? `<p class="issue warning">${applied.needsInput} block${applied.needsInput > 1 ? 's need' : ' needs'} numbers the plan does not show.
           They are listed in Checks; fill them in, or use <em>AI fill</em> to describe them in words.</p>` : ''}
         ${applied.notes ? `<p class="note"><strong>AI notes:</strong> ${esc(applied.notes)}</p>` : ''}

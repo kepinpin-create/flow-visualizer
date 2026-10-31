@@ -264,7 +264,7 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(-
 
 /* ---- plan ---- */
 svg.plan { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: default; }
-svg.plan[data-tool='link'], svg.plan[data-tool='wall'], svg.plan[data-tool='calibrate'] { cursor: crosshair; }
+svg.plan[data-tool='link'], svg.plan[data-tool='wall'], svg.plan[data-tool='door'], svg.plan[data-tool='calibrate'] { cursor: crosshair; }
 .plan-bg { fill: var(--plan-bg); stroke: var(--border); vector-effect: non-scaling-stroke; }
 /* Floor plans are usually black on white; in dark mode show them as light lines on dark so fading works. */
 @media (prefers-color-scheme: dark) {

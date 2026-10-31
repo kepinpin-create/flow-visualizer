@@ -26,6 +26,8 @@ const bankReply: LayoutReply = {
     { from: 'line', to: 'exit', probability: null }, // not allowed: a queue only feeds its server
     { from: 'ghost', to: 'exit', probability: null }, // unknown block
   ],
+  walls: [],
+  doors: [],
   notes: 'Arrival rate and service times are not shown on the plan.',
 };
 

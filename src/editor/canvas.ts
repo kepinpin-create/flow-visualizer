@@ -4,8 +4,9 @@ import {
 } from './blocks';
 import type { Store } from './store';
 import { routeKey, type Route } from '../routing/pathfinder';
+import { cutDoorAt, MIN_DOOR_M } from '../ai/walls';
 
-export type Tool = 'select' | 'link' | 'wall' | 'calibrate';
+export type Tool = 'select' | 'link' | 'wall' | 'door' | 'calibrate';
 
 export interface CanvasHooks {
   /** Short guidance or an error for the status line. */
@@ -199,6 +200,7 @@ export class PlanCanvas {
       link: 'Click the block the flow leaves, then the block it goes to.',
       wall: 'Click to add wall points. Double-click or press Enter to finish; Esc cancels.',
       calibrate: 'Click two points whose real distance you know, such as the ends of a wall or a door.',
+      door: `Click a wall where people should be able to walk through; a ${MIN_DOOR_M} m doorway opens there.`,
     };
     this.hooks.message(help[tool]);
     this.render();
@@ -350,6 +352,22 @@ export class PlanCanvas {
       this.linkFrom = null;
       this.hooks.message(`Linked. Click the next block the flow leaves, or press Esc.`);
       this.render();
+      return;
+    }
+
+    if (this.tool === 'door') {
+      const mpp = metersPerPixel(this.store.model);
+      // Generous reach: a click within 0.6 m (or 12 screen pixels) of a wall counts.
+      const reach = Math.max(0.6 / mpp, 12 / this.view.k);
+      const walls = cutDoorAt(this.store.model.walls ?? [], p, MIN_DOOR_M / mpp, reach);
+      if (!walls) {
+        this.hooks.message('No wall there. Click right on a wall to open a doorway in it.', 'error');
+        return;
+      }
+      this.store.commit((m) => {
+        m.walls = walls;
+      });
+      this.hooks.message('Doorway opened. Click another wall, or press Esc when done.');
       return;
     }
 
