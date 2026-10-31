@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { drawnMean } from '../src/engine/distributions';
 import { runExperiment } from '../src/engine/experiment';
 import { runReplication, type LogEvent } from '../src/engine/simulator';
 import bank from '../src/templates/bank.json';
@@ -116,5 +117,61 @@ describe('warnings (FR-26)', () => {
     const res = runExperiment(mmc(70, 1, 1, { hours: 50, warmupMin: 60, replications: 3, seed: 1 }));
     expect(res.warnings.some((w) => w.message.includes('unstable'))).toBe(true);
     expect(res.theory).toHaveLength(0);
+  });
+});
+
+describe('checks behind an overloaded station', () => {
+  // Entrance → kiosk at 100% load → half go on to a loan desk at 50% load.
+  const res = runExperiment(valid({
+    version: '0.1', entityLabel: 'customer',
+    blocks: [
+      { id: 'in', type: 'source', label: 'In', x: 0, y: 0, arrival: { dist: 'exponential', ratePerHour: 15 } },
+      { id: 'kiosk', type: 'server', label: 'Kiosk', x: 1, y: 0, servers: 1, service: { dist: 'exponential', meanMin: 4 } },
+      { id: 'split', type: 'decision', label: 'Loan?', x: 2, y: 0 },
+      { id: 'loan', type: 'server', label: 'Loan desk', x: 3, y: 0, servers: 1, service: { dist: 'exponential', meanMin: 4 } },
+      { id: 'out', type: 'sink', label: 'Out', x: 4, y: 0 },
+    ],
+    links: [
+      { from: 'in', to: 'kiosk' }, { from: 'kiosk', to: 'split' },
+      { from: 'split', to: 'loan', prob: 0.5 }, { from: 'split', to: 'out', prob: 0.5 }, { from: 'loan', to: 'out' },
+    ],
+    run: { hours: 8, warmupMin: 1, replications: 30, seed: 7 },
+  }));
+
+  it('does not compare a station after it with Erlang-C, and says why', () => {
+    expect(res.theory).toHaveLength(0);
+    expect(res.theorySkipped).toHaveLength(1);
+    expect(res.theorySkipped[0]).toMatch(/Loan desk.*Kiosk before it is overloaded/);
+  });
+
+  it('marks whole-system Little\'s Law as not applicable instead of failing it', () => {
+    const whole = res.little.find((l) => l.scope === 'Whole system')!;
+    expect(whole.skipped).toMatch(/Kiosk is overloaded/);
+    expect(res.little.filter((l) => l.skipped).map((l) => l.scope)).toEqual(['Whole system', 'Line at Kiosk']);
+  });
+});
+
+describe('a normal time cut off at zero', () => {
+  const desk = (ratePerHour: number) => valid({
+    version: '0.1', entityLabel: 'customer',
+    blocks: [
+      { id: 'in', type: 'source', label: 'In', x: 0, y: 0, arrival: { dist: 'exponential', ratePerHour } },
+      { id: 'desk', type: 'server', label: 'Desk', x: 1, y: 0, servers: 1, service: { dist: 'normal', meanMin: 4, sdMin: 4 } },
+      { id: 'out', type: 'sink', label: 'Out', x: 2, y: 0 },
+    ],
+    links: [{ from: 'in', to: 'desk' }, { from: 'desk', to: 'out' }],
+    run: { hours: 200, warmupMin: 120, replications: 5, seed: 3 },
+  });
+
+  it('averages what the simulator actually draws', () => {
+    expect(drawnMean({ dist: 'normal', meanMin: 4, sdMin: 4 })).toBeCloseTo(5.15, 2);
+    expect(drawnMean({ dist: 'normal', meanMin: 4, sdMin: 0 })).toBe(4);
+    // 8/h at 5.15 min each keeps one desk 69% busy, not the 53% the typed mean suggests.
+    expect(runExperiment(desk(8)).stations[0].utilization.mean).toBeCloseTo((8 * 5.15) / 60, 1);
+  });
+
+  it('calls a desk unstable when the real average overloads it', () => {
+    // Typed mean: 13 × 4 / 60 = 87%. Real: 13 × 5.15 / 60 = 112%.
+    expect(runExperiment(desk(13)).warnings.some((w) => w.message.includes('unstable'))).toBe(true);
   });
 });

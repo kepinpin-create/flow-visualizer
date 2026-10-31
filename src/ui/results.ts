@@ -33,11 +33,12 @@ export function resultsHtml(r: ExperimentResult, entity: string): string {
       <td>${est(st.arrivalsPerHour, 1)}</td>
     </tr>`).join('');
 
-  const theory = r.theory.length
+  const skipped = r.theorySkipped.map((s) => `<p class="note">${esc(s)}</p>`).join('');
+  const theory = (r.theory.length
     ? `<div class="table-wrap"><table>
-        <thead><tr><th>Station</th><th>c</th><th>λ/h</th><th>μ/h</th><th>ρ</th>
-          <th>Wq sim</th><th>Wq Erlang-C</th><th>Error</th>
-          <th>Lq sim</th><th>Lq Erlang-C</th><th>Error</th><th></th></tr></thead>
+        <thead><tr><th>Station</th><th>Staff (c)</th><th>Arrivals/h (λ)</th><th>Served/h per staff (μ)</th><th>Busy (ρ)</th>
+          <th>Wait, simulated (Wq)</th><th>Wait, formula</th><th>Gap</th>
+          <th>Line, simulated (Lq)</th><th>Line, formula</th><th>Gap</th><th></th></tr></thead>
         <tbody>${r.theory.map((t) => `
           <tr>
             <td>${esc(t.label || t.id)}</td><td>${t.c}</td>
@@ -47,42 +48,47 @@ export function resultsHtml(r: ExperimentResult, entity: string): string {
             <td>${theoryBadge[t.status]}</td>
           </tr>`).join('')}</tbody></table></div>
       ${r.theory.some((t) => t.status === 'withinCI')
-        ? '<p class="note">"Within CI": the gap is 5% or more, but Erlang-C lies inside the 95% confidence interval, so it is run-length noise. Raise hours or replications to tighten it.</p>'
+        ? '<p class="note">"Within CI": the gap is 5% or more, but the formula\'s value lies inside the simulation\'s 95% range (confidence interval), so it is run-length noise. Raise hours or replications to tighten it.</p>'
         : ''}`
-    : `<p class="note">No station qualifies as M/M/c. A station needs Poisson arrivals, exponential service and an unlimited FIFO line, with nothing upstream that breaks those.</p>`;
+    : skipped
+      ? ''
+      : `<p class="note">No station fits the formula (M/M/c). It needs random arrivals (Poisson), random service times (exponential) and an unlimited first-come line, with nothing before it that breaks those.</p>`) + skipped;
 
   const little = r.little.map((l) => `
     <tr><td>${esc(l.scope)}</td><td>${num(l.L, 3)}</td><td>${num(l.lambdaW, 3)}</td>
-      <td>${num(l.errorPct, 1)}%</td><td>${badge(l.pass)}</td></tr>`).join('');
+      <td>${num(l.errorPct, 1)}%</td><td>${l.skipped ? '<span class="badge warn">Not steady</span>' : badge(l.pass)}</td></tr>`).join('');
+  const littleNotes = r.little.filter((l) => l.skipped).map((l) => `<p class="note">${esc(l.skipped!)}</p>`).join('');
 
   const warnings = r.warnings.map((w) => `<div class="issue warning">${esc(w.message)}</div>`).join('');
 
   return `
     <h2>System</h2>
-    <p class="note">Means over ${r.replications} replications, ± 95% confidence half-width. Times in minutes.</p>
+    <p class="note">Averages over ${r.replications} simulated days (replications); ± is the 95% range. Times in minutes.</p>
     <div class="kpis">
-      ${kpi(`Throughput (${esc(entity)}s/h)`, est(s.throughputPerHour, 1))}
-      ${kpi('Time in system W', est(s.W))}
-      ${kpi('Work in system L', est(s.L))}
-      ${kpi('Balk rate', est(s.balkRate, 1, 100) + '%')}
-      ${kpi('Travel per ' + esc(entity) + ' (m)', est(s.travelMeanM, 1))}
+      ${kpi(`Served per hour (${esc(entity)}s)`, est(s.throughputPerHour, 1))}
+      ${kpi('Time from arrival to leaving (W)', est(s.W))}
+      ${kpi(`Inside at once (L, ${esc(entity)}s)`, est(s.L))}
+      ${kpi('Left because the line was too long', est(s.balkRate, 1, 100) + '%')}
+      ${kpi('Walk per ' + esc(entity) + ' (m)', est(s.travelMeanM, 1))}
     </div>
 
     ${warnings ? `<h2>Warnings</h2>${warnings}` : ''}
 
     <h2>Stations</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>Station</th><th>c</th><th>Utilization ρ</th><th>Wq mean</th><th>Wq p90</th>
-        <th>Lq mean</th><th>Lq max</th><th>Arrivals/h</th></tr></thead>
+      <thead><tr><th>Station</th><th>Staff (c)</th><th>Busy (ρ)</th><th>Average wait (Wq)</th><th>9 in 10 wait less than (p90)</th>
+        <th>Average line (Lq)</th><th>Longest line</th><th>Arrivals/h (λ)</th></tr></thead>
       <tbody>${stationRows}</tbody>
     </table></div>
 
-    <h2>Theory check (Erlang-C)</h2>
+    <h2>Check against queuing theory (Erlang-C)</h2>
+    <p class="note">Where the textbook formula applies, the simulation should land close to it.</p>
     ${theory}
 
-    <h2>Little's Law (L = λW)</h2>
+    <h2>Consistency check (Little's Law, L = λW)</h2>
+    <p class="note">People present on average should equal arrivals per minute × minutes each one stays.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Scope</th><th>L</th><th>λW</th><th>Gap</th><th></th></tr></thead>
+      <thead><tr><th>Where</th><th>People present (L)</th><th>Arrivals × time (λW)</th><th>Gap</th><th></th></tr></thead>
       <tbody>${little}</tbody>
-    </table></div>`;
+    </table></div>${littleNotes}`;
 }
