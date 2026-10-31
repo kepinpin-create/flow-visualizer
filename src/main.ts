@@ -296,15 +296,45 @@ const ai = setupAi({ store, message, afterChange: () => requestAnimationFrame(()
 $('ai-layout').addEventListener('click', () => ai.suggestLayout());
 $('ai-fill').addEventListener('click', () => ai.fillFromText());
 $('ai-settings').addEventListener('click', () => ai.openSettings());
+/** The layout the plan shows: the optimized one once it has been simulated (proposalReplay holds its model). */
+function shownLayout(): { model: ModelSpec; optimized: boolean } {
+  return viewing === 'proposal' && proposalReplay ? { model: proposalReplay[1], optimized: true } : { model: store.model, optimized: false };
+}
 const picture = setupPicture({
-  // proposalReplay holds the optimized model; it only exists once that layout has been simulated.
-  layout: () => (viewing === 'proposal' && proposalReplay ? { model: proposalReplay[1], optimized: true } : { model: store.model, optimized: false }),
+  layout: shownLayout,
   getFrame: () => player.currentFrame(),
   clock: Player.clock,
   openSettings: ai.openSettings,
   message,
 });
 $('ai-picture').addEventListener('click', () => picture.open());
+
+// ---- 3D view: view-only, Three.js loads on first use ----
+const view3dButton = $<HTMLButtonElement>('view-3d');
+let view3d: { dispose(): void } | null = null;
+view3dButton.addEventListener('click', async () => {
+  if (view3d) {
+    view3d.dispose();
+    view3d = null;
+    view3dButton.setAttribute('aria-pressed', 'false');
+    return;
+  }
+  view3dButton.disabled = true;
+  try {
+    const { mountView3d } = await import('./view3d/scene');
+    view3d = mountView3d($('canvas'), {
+      getModel: () => shownLayout().model,
+      // Same rule as the 2D dots: a proposal without its own replay shows no people.
+      getDots: () => ($('canvas').classList.contains('viewing-proposal') ? null : player.currentFrame()?.dots ?? null),
+    });
+    view3dButton.setAttribute('aria-pressed', 'true');
+    message(player.loaded ? '3D view: drag to orbit, scroll to zoom. The replay controls work as in 2D.' : '3D view: run the simulation to see people move.');
+  } catch (e) {
+    message(`The 3D view could not start: ${(e as Error).message || 'this browser has no WebGL'}.`, 'error');
+  } finally {
+    view3dButton.disabled = false;
+  }
+});
 
 // ---- JSON view ----
 const IMAGE_PLACEHOLDER = '(embedded plan image)';
