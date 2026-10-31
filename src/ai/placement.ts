@@ -101,10 +101,16 @@ export function spotProblem(model: ModelSpec, b: Block, x: number, y: number): s
       if (wallDistance(poly, wall[i - 1], wall[i]) < WALL_CLEARANCE_M / mpp) return 'it would hit a wall';
     }
   }
+  // A line and the server it feeds belong side by side: between them only actual overlap counts, no aisle.
+  const partners = new Set(model.links
+    .filter((l) => (l.from === b.id && b.type === 'queue') || (l.to === b.id && b.type === 'server'))
+    .map((l) => (l.from === b.id ? l.to : l.from))
+    .filter((id) => id !== b.id && (b.type === 'queue' || model.blocks.find((o) => o.id === id)?.type === 'queue')));
   const grown = corners(model, b, x, y, BLOCK_GAP_M / mpp);
   for (const other of model.blocks) {
     if (other.id === b.id) continue;
-    if (overlaps(grown, corners(model, other, other.x, other.y))) return `it would overlap ${other.label || other.id}`;
+    const mine = partners.has(other.id) ? poly : grown;
+    if (overlaps(mine, corners(model, other, other.x, other.y))) return `it would overlap ${other.label || other.id}`;
   }
   return null;
 }

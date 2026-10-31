@@ -25,6 +25,7 @@
   --wall: #2a2f38;
   --link: #3a4252;
   --calib: #c2185b;
+  --uturn: #7c3aed;
   --dot-move: #2357d9;
   --dot-wait: #d08a1e;
   --dot-service: #1f7a3d;
@@ -66,6 +67,7 @@
     --wall: #d5dae3;
     --link: #b8c0cf;
     --calib: #ff7aa8;
+    --uturn: #b48cff;
     --dot-move: #7da2ff;
     --dot-wait: #f3b54a;
     --dot-service: #6fd391;
@@ -310,6 +312,12 @@ svg.plan[data-tool='link'] .block { cursor: pointer; }
   /* Hover shows "people/h, meters"; a click still falls through to panning. */
   pointer-events: visibleStroke;
 }
+.marker { fill: var(--panel); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; cursor: help; }
+.marker path { fill: none; }
+.marker.crossing, .marker.door { stroke: var(--bad); }
+.marker.overflow { stroke: var(--warn); }
+.marker.overflow > path:first-of-type { fill: var(--warn-bg); }
+.marker.uturn { stroke: var(--uturn); }
 .route.no-path { stroke: var(--bad); stroke-dasharray: 2 6; stroke-opacity: 0.7; }
 /* Current / Optimized layout switch, top centre of the plan. */
 .view-switch {
@@ -490,4 +498,21 @@ tbody tr:hover { background: var(--panel-2); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ---- layout scorecard ---- */
+.scorecard { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-4); align-items: start; margin: var(--sp-3) 0; }
+.score-total {
+  display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%;
+  border: 6px solid var(--accent-soft); outline: 2px solid var(--border); outline-offset: -2px;
+  font-variant-numeric: tabular-nums;
+}
+.score-total strong { font-size: var(--fs-2xl); line-height: 1; }
+.score-total span { font-size: var(--fs-xs); color: var(--muted); margin-top: -18px; }
+.criteria { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.criteria li { display: grid; grid-template-columns: 52px 1fr; gap: var(--sp-2); align-items: start; }
+.criteria .badge { justify-self: start; margin-top: 2px; }
+.criteria p { margin: 0; color: var(--muted); font-size: var(--fs-sm); max-width: 75ch; }
+@media (max-width: 600px) {
+  .scorecard { grid-template-columns: 1fr; }
 }

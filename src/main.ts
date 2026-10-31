@@ -13,6 +13,7 @@ import { setupPicture } from './ai/picture-ui';
 import { setupReview, type LastRun } from './ai/review-ui';
 import { setupAi } from './ai/ui';
 import { linkFlows } from './layout/optimize';
+import { setupScorecard } from './layout/scorecard-ui';
 import { Player } from './replay/player';
 import { computeRoutes, routeDistances, type Route } from './routing/pathfinder';
 import bank from './templates/bank.json';
@@ -356,8 +357,28 @@ const review = setupReview({
 canvas.onModeChange((mode) => $('canvas').classList.toggle('viewing-proposal', mode === 'proposal'));
 // A proposed layout is only valid for the model it was made from: drop it on any real edit (not on selection).
 let previewVersion = -1;
+// Layout scorecard: grades, problem markers on the plan, and AI layout advice checked by the simulator.
+const scorecard = setupScorecard({
+  host: resultsEl,
+  store,
+  getLastRun: () => lastRun,
+  ensureKey: ai.ensureKey,
+  message,
+  rerun: () => runButton.click(),
+  markers: (m) => {
+    previewVersion = store.version;
+    canvas.setMarkers(m);
+  },
+  preview: (moves, routes) => {
+    previewVersion = store.version;
+    canvas.setPreview(moves, routes);
+  },
+});
 store.subscribe(() => {
-  if (store.version !== previewVersion) canvas.setPreview(null);
+  if (store.version !== previewVersion) {
+    canvas.setPreview(null);
+    canvas.setMarkers(null);
+  }
 });
 
 runButton.addEventListener('click', () => {
@@ -395,6 +416,7 @@ runButton.addEventListener('click', () => {
       + resultsHtml(msg.result, model.entityLabel);
     lastRun = { model, result: msg.result, distances: routeDistances(runRoutes) };
     review.attach(resultsEl);
+    scorecard.reset();
     resultsEl.dataset.ran = 'true';
     improved = false;
     queueMicrotask(updateGuidance);

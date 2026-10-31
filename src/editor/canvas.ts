@@ -66,8 +66,16 @@ export class PlanCanvas {
   routes = new Map<string, Route>();
   /** People per hour on each link; busier paths are drawn thicker. */
   routeFlows = new Map<string, number>();
+  /** Problem spots from the layout scorecard, drawn on top until the model changes. */
+  private markers: { x: number; y: number; kind: 'crossing' | 'overflow' | 'door' | 'uturn'; text: string }[] = [];
+
+  setMarkers(markers: PlanCanvas['markers'] | null) {
+    this.markers = markers ?? [];
+    this.render();
+  }
+
   /** A proposed layout (Optimize layout): new spots and the walking paths they give. */
-  private preview: { id: string; to: Point }[] = [];
+  private preview: { id: string; to: Point; w?: number; h?: number }[] = [];
   private previewRoutes: Map<string, Route> | null = null;
   /** Which layout the plan shows while a proposal exists. The proposal view is look-only. */
   private viewing: 'current' | 'proposal' = 'current';
@@ -75,7 +83,7 @@ export class PlanCanvas {
   private modeListeners = new Set<(mode: 'current' | 'proposal') => void>();
 
   /** Shows a proposed layout and switches the plan to it; null removes it. */
-  setPreview(moves: { id: string; to: Point }[] | null, routes?: Map<string, Route>) {
+  setPreview(moves: { id: string; to: Point; w?: number; h?: number }[] | null, routes?: Map<string, Route>) {
     this.preview = moves ?? [];
     this.previewRoutes = routes ?? null;
     this.setViewing(this.preview.length ? 'proposal' : 'current');
@@ -100,8 +108,11 @@ export class PlanCanvas {
   private displayModel() {
     const m = this.store.model;
     if (this.viewing !== 'proposal' || !this.preview.length) return m;
-    const to = new Map(this.preview.map((p) => [p.id, p.to]));
-    return { ...m, blocks: m.blocks.map((b) => (to.has(b.id) ? { ...b, x: to.get(b.id)![0], y: to.get(b.id)![1] } : b)) };
+    const byChange = new Map(this.preview.map((p) => [p.id, p]));
+    return { ...m, blocks: m.blocks.map((b) => {
+      const p = byChange.get(b.id);
+      return p ? { ...b, x: p.to[0], y: p.to[1], ...(p.w ? { w: p.w } : {}), ...(p.h ? { h: p.h } : {}) } : b;
+    }) };
   }
   private viewListeners = new Set<() => void>();
   /** Fingers currently on the plan, by pointer id, in client pixels. */
@@ -658,6 +669,20 @@ export class PlanCanvas {
     for (const b of m.blocks) {
       parts.push(this.blockSvg(b, k, sel?.kind === 'block' && sel.id === b.id).replace(
         'class="block"', movedIds.has(b.id) ? 'class="block moved"' : 'class="block"'));
+    }
+    // Scorecard problem spots: one shape per kind (never color alone), with the reason on hover.
+    if (!proposal) {
+      const s = 11 / k;
+      for (const mk of this.markers) {
+        const shape = mk.kind === 'crossing'
+          ? `<circle r="${s}"/><path d="M${-s / 2} ${-s / 2}L${s / 2} ${s / 2}M${s / 2} ${-s / 2}L${-s / 2} ${s / 2}"/>`
+          : mk.kind === 'overflow'
+            ? `<path d="M0 ${-s * 1.1}L${s} ${s * 0.8}H${-s}Z"/><path d="M0 ${-s * 0.35}V${s * 0.2}M0 ${s * 0.45}V${s * 0.5}"/>`
+            : mk.kind === 'door'
+              ? `<rect x="${-s}" y="${-s}" width="${2 * s}" height="${2 * s}" rx="${s / 4}"/><path d="M${-s / 2} ${s / 2}L${s / 2} ${-s / 2}"/>`
+              : `<circle r="${s}"/><path d="M${s / 3} ${-s / 2}A${s / 2} ${s / 2} 0 1 0 ${s / 3} ${s / 2}M${s / 3} ${s / 2}l${-s / 3} ${-s / 4}"/>`;
+        parts.push(`<g class="marker ${mk.kind}" transform="translate(${mk.x} ${mk.y})"><title>${esc(mk.text)}</title>${shape}</g>`);
+      }
     }
     this.content.innerHTML = parts.join('');
     this.renderOverlay();

@@ -109,9 +109,11 @@ export function setupReview(opts: {
         <option value="en" ${lang === 'en' ? 'selected' : ''}>English</option>
         <option value="id" ${lang === 'id' ? 'selected' : ''}>Bahasa Indonesia</option>
       </select></label>
+      <button type="button" data-score="run" title="Grades flow order, crossing paths, queue space, doors and walking from this run. No AI needed."><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Layout scorecard</span></button>
       <button type="button" data-review="layout" title="Moves busy areas closer together and to the entrance. Runs here, no AI or key needed."><svg class="i" aria-hidden="true"><use href="#i-layout"/></svg><span>Optimize layout</span></button>
       <span class="note">AI review sends only these numbers and the block names, no plan image. Every suggestion is then tested in the simulator.</span>
     </div>
+    <div class="score-out"></div>
     <div class="layout-out"></div>
     <div class="review-out"></div>`;
   }
