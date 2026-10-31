@@ -76,6 +76,8 @@ export function setupReview(opts: {
   preview: (moves: { id: string; to: [number, number] }[] | null, routes?: Map<string, Route>) => void;
   /** The optimized layout's test run, so its replay can play in the Optimized view. */
   onLayoutTested: (model: ModelSpec, result: ExperimentResult, routes: Map<string, Route>) => void;
+  /** Opens the AI picture on the optimized view. */
+  openPicture: () => void;
 }) {
   const { host, store } = opts;
   let controller: AbortController | null = null;
@@ -91,6 +93,7 @@ export function setupReview(opts: {
     if (btn.dataset.review === 'layout') void optimize();
     if (btn.dataset.review === 'layout-apply') applyLayout();
     if (btn.dataset.review === 'layout-explain') opts.ensureKey(() => void explainLayout());
+    if (btn.dataset.review === 'layout-picture') opts.openPicture();
   });
   host.addEventListener('change', (e) => {
     const sel = e.target as HTMLSelectElement;
@@ -284,6 +287,7 @@ export function setupReview(opts: {
         <div class="actions">
           <button type="button" data-review="layout-apply">Apply new layout and run again</button>
           <button type="button" data-review="layout-explain">Explain with AI</button>
+          <button type="button" data-review="layout-picture">Picture of the new layout</button>
         </div>`;
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;

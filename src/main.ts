@@ -297,7 +297,8 @@ $('ai-layout').addEventListener('click', () => ai.suggestLayout());
 $('ai-fill').addEventListener('click', () => ai.fillFromText());
 $('ai-settings').addEventListener('click', () => ai.openSettings());
 const picture = setupPicture({
-  store,
+  // proposalReplay holds the optimized model; it only exists once that layout has been simulated.
+  layout: () => (viewing === 'proposal' && proposalReplay ? { model: proposalReplay[1], optimized: true } : { model: store.model, optimized: false }),
   getFrame: () => player.currentFrame(),
   clock: Player.clock,
   openSettings: ai.openSettings,
@@ -358,6 +359,10 @@ const review = setupReview({
     if (!result.log) return;
     proposalReplay = [result.log, model, routes, result.logEnd ?? model.run.hours * 60];
     showReplay();
+  },
+  openPicture: () => {
+    document.querySelector<HTMLButtonElement>('[data-view="proposal"]')?.click();
+    picture.open();
   },
 });
 

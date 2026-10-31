@@ -1,6 +1,6 @@
 // The "AI picture" dialog: pick a style, optionally include the people at the replay moment,
 // and get a Muse Image illustration of the layout to view and download.
-import type { Store } from '../editor/store';
+import type { ModelSpec } from '../model/types';
 import type { Dot } from '../replay/replay';
 import { generatePicture, PICTURE_STYLES, picturePrompt, pictureSize, renderPlanPicture, type PictureStyle } from './picture';
 import { loadSettings } from './settings';
@@ -8,7 +8,8 @@ import { loadSettings } from './settings';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export function setupPicture(opts: {
-  store: Store;
+  /** The layout the plan shows: the optimized one while that view has its own replay. */
+  layout: () => { model: ModelSpec; optimized: boolean };
   getFrame: () => { t: number; dots: Dot[]; stale: boolean } | null;
   clock: (min: number) => string;
   openSettings: () => void;
@@ -24,10 +25,12 @@ export function setupPicture(opts: {
   let gallery: { url: string; caption: string }[] = [];
 
   function open() {
-    if (!opts.store.model.blocks.length) {
+    const { model, optimized } = opts.layout();
+    if (!model.blocks.length) {
       opts.message('Add or suggest blocks first; the picture shows your layout.', 'error');
       return;
     }
+    dlg.querySelector('#ai-picture-title')!.textContent = optimized ? 'AI picture of the optimized layout' : 'AI picture of this layout';
     const frame = opts.getFrame();
     const meta = loadSettings('meta');
     dlg.querySelector('.ai-body')!.innerHTML = `
@@ -87,11 +90,11 @@ export function setupPicture(opts: {
     status.textContent = 'Drawing the plan and asking Muse Image… this can take up to a minute.';
     controller = new AbortController();
     try {
-      const model = opts.store.model;
+      const { model, optimized } = opts.layout();
       const ref = await renderPlanPicture(model, people);
       const url = await generatePicture(loadSettings('meta'), picturePrompt(model, style, people, context), ref.dataUrl,
         pictureSize(ref.width, ref.height), controller.signal);
-      gallery = [{ url, caption: `${PICTURE_STYLES[style].name}${frame ? `, people at ${opts.clock(frame.t)}` : ''}` }, ...gallery].slice(0, 6);
+      gallery = [{ url, caption: `${optimized ? 'Optimized layout, ' : ''}${PICTURE_STYLES[style].name}${frame ? `, people at ${opts.clock(frame.t)}` : ''}` }, ...gallery].slice(0, 6);
       dlg.querySelector('.picture-out')!.innerHTML = galleryHtml();
       status.textContent = 'Done. Make another, or download it.';
     } catch (err) {
