@@ -294,7 +294,6 @@ svg.plan[data-tool='link'] .block { cursor: pointer; }
   fill: var(--text); text-anchor: middle; font-weight: 600; pointer-events: none;
   paint-order: stroke; stroke: var(--plan-bg); stroke-width: 4px; stroke-linejoin: round;
 }
-.block-label .ai { fill: var(--warn); font-weight: 700; }
 .sel-outline { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .handle { fill: var(--panel); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .handle[data-handle='resize'] { cursor: nwse-resize; }

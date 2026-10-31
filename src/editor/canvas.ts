@@ -748,7 +748,6 @@ export class PlanCanvas {
         shape = `<rect class="${cls}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${2 / k}"/>`;
     }
     const extra = b.type === 'server' ? ` ×${b.servers}` : b.type === 'resource' ? ` ×${b.count}` : '';
-    const ai = b.origin === 'ai' ? ` <tspan class="ai">AI</tspan>` : '';
     const handles = selected
       ? `<rect class="sel-outline" x="${-w / 2 - 4 / k}" y="${-h / 2 - 4 / k}" width="${w + 8 / k}" height="${h + 8 / k}"/>
          <line class="sel-outline" x1="0" y1="${-h / 2 - 4 / k}" x2="0" y2="${-h / 2 - 22 / k}"/>
@@ -757,7 +756,7 @@ export class PlanCanvas {
       : '';
     return `<g class="block" data-block="${esc(b.id)}" style="--c:${s.color}">
       <g transform="translate(${b.x} ${b.y}) rotate(${b.rotation ?? 0})">${shape}${handles}</g>
-      <text class="block-label" x="${b.x}" y="${b.y + this.halfHeight(b, w, h) + 14 / k}" style="font-size:${12 / k}px">${esc(b.label || b.id)}${extra}${ai}</text>
+      <text class="block-label" x="${b.x}" y="${b.y + this.halfHeight(b, w, h) + 14 / k}" style="font-size:${12 / k}px">${esc(b.label || b.id)}${extra}</text>
     </g>`;
   }
 
