@@ -351,11 +351,39 @@ const review = setupReview({
   rerun: () => runButton.click(),
   preview: (moves, routes) => {
     previewVersion = store.version;
+    proposalReplay = null;
     canvas.setPreview(moves, routes);
   },
+  onLayoutTested: (model, result, routes) => {
+    if (!result.log) return;
+    proposalReplay = [result.log, model, routes, result.logEnd ?? model.run.hours * 60];
+    showReplay();
+  },
 });
-// The replay dots belong to the current layout, so hide them while the proposal is shown.
-canvas.onModeChange((mode) => $('canvas').classList.toggle('viewing-proposal', mode === 'proposal'));
+
+// Each view plays its own replay: the last run, or the optimized layout's test run.
+type ReplayArgs = Parameters<Player['load']>;
+let currentReplay: ReplayArgs | null = null;
+let proposalReplay: ReplayArgs | null = null;
+let loadedReplay: ReplayArgs | null = null;
+let viewing: 'current' | 'proposal' = 'current';
+function showReplay() {
+  const r = viewing === 'proposal' ? proposalReplay : currentReplay;
+  // A proposal without its own replay hides the dots: they belong to the current layout.
+  $('canvas').classList.toggle('viewing-proposal', viewing === 'proposal' && !r);
+  // Edits also report the view, so reload only when the replay to show changes.
+  if (!r || r === loadedReplay) return;
+  // Switching views keeps the moment on screen, so both layouts can be compared at the same time of day.
+  const sameRun = loadedReplay === currentReplay || loadedReplay === proposalReplay;
+  const at = sameRun ? (player.currentFrame()?.t ?? 0) : 0;
+  loadedReplay = r;
+  player.load(r[0], r[1], r[2], r[3], at);
+  if (r === currentReplay && store.version !== playerVersion) player.markStale();
+}
+canvas.onModeChange((mode) => {
+  viewing = mode;
+  showReplay();
+});
 // A proposed layout is only valid for the model it was made from: drop it on any real edit (not on selection).
 let previewVersion = -1;
 // Layout scorecard: grades, problem markers on the plan, and AI layout advice checked by the simulator.
@@ -372,6 +400,8 @@ const scorecard = setupScorecard({
   },
   preview: (moves, routes) => {
     previewVersion = store.version;
+    // AI layout advice is tested without a replay, so its view shows no dots.
+    proposalReplay = null;
     canvas.setPreview(moves, routes);
   },
 });
@@ -386,6 +416,7 @@ store.subscribe(() => {
 const emptyResults = resultsEl.innerHTML;
 function resetSimulation(note?: string) {
   const hadRun = player.loaded || resultsEl.dataset.ran === 'true';
+  currentReplay = proposalReplay = loadedReplay = null;
   worker?.terminate();
   worker = undefined;
   runButton.disabled = false;
@@ -453,9 +484,10 @@ runButton.addEventListener('click', () => {
     resultsVersion = version;
     resultsEl.classList.toggle('stale', version !== store.version);
     if (msg.result.log) {
-      player.load(msg.result.log, model, runRoutes, msg.result.logEnd ?? model.run.hours * 60);
       playerVersion = version;
-      if (version !== store.version) player.markStale();
+      currentReplay = [msg.result.log, model, runRoutes, msg.result.logEnd ?? model.run.hours * 60];
+      proposalReplay = null;
+      showReplay();
       if ((msg.result.logEnd ?? Infinity) < model.run.hours * 60) {
         message(`Done. The replay covers the first ${(msg.result.logEnd! / 60).toFixed(1)} hours; KPIs cover the whole run.`);
       }

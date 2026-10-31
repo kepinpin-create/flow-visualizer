@@ -106,14 +106,14 @@ export class Player {
     return clock(min);
   }
 
-  load(log: LogEvent[], model: ModelSpec, routes: Map<string, Route>, end: number) {
+  load(log: LogEvent[], model: ModelSpec, routes: Map<string, Route>, end: number, startAt = 0) {
     this.replay = new Replay(log, model, routes, end);
     this.warmup = model.run.warmupMin;
     this.mpp = model.background?.metersPerPixel ?? DEFAULT_METERS_PER_PIXEL;
     this.entity = model.entityLabel;
-    this.t = 0;
+    this.t = Math.min(startAt, end);
     this.els.range.max = String(end);
-    this.els.range.value = '0';
+    this.els.range.value = String(this.t);
     this.els.stale.hidden = true;
     this.bar.hidden = false;
     this.canvas.hidden = false;

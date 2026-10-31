@@ -74,6 +74,8 @@ export function setupReview(opts: {
   rerun: () => void;
   /** Shows proposed block positions (and their walking paths) on the plan; null clears them. */
   preview: (moves: { id: string; to: [number, number] }[] | null, routes?: Map<string, Route>) => void;
+  /** The optimized layout's test run, so its replay can play in the Optimized view. */
+  onLayoutTested: (model: ModelSpec, result: ExperimentResult, routes: Map<string, Route>) => void;
 }) {
   const { host, store } = opts;
   let controller: AbortController | null = null;
@@ -273,9 +275,10 @@ export function setupReview(opts: {
       </div>`;
     const test = box.querySelector<HTMLElement>('.test-result')!;
     try {
-      const sim = await runInWorker(result.model, { distances: after, signal });
+      const sim = await runInWorker(result.model, { distances: after, signal, recordLog: true });
       const c = compareRuns(run.result, sim, run.model.entityLabel);
       layout.comparison = c;
+      opts.onLayoutTested(result.model, sim, newRoutes);
       host.dispatchEvent(new CustomEvent('flow:improved'));
       test.innerHTML = `<p>${verdictHtml(c)}</p>${comparisonHtml(c)}
         <div class="actions">
