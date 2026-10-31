@@ -3,8 +3,10 @@ import type { PlanCanvas } from '../editor/canvas';
 import type { LogEvent } from '../engine/simulator';
 import { DEFAULT_METERS_PER_PIXEL, type ModelSpec } from '../model/types';
 import type { Route } from '../routing/pathfinder';
-import { Replay, type DotState } from './replay';
+import { Replay, type Dot, type DotState } from './replay';
 
+const PLAY_ICON = '<svg class="i" aria-hidden="true"><use href="#i-play"/></svg>';
+const PAUSE_ICON = '<svg class="i" aria-hidden="true"><use href="#i-pause"/></svg>';
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
 const DEFAULT_SPEED = 100;
 /** Dot radius, meters, with a floor in screen pixels so dots stay visible when zoomed out. */
@@ -46,7 +48,7 @@ export class Player {
     this.bar.className = 'replay-bar';
     this.bar.hidden = true;
     this.bar.innerHTML = `
-      <button type="button" class="play" aria-label="Play">▶</button>
+      <button type="button" class="play icon-only" aria-label="Play">${PLAY_ICON}</button>
       <label class="inline">Speed
         <select class="speed">${SPEEDS.map((s) => `<option value="${s}" ${s === DEFAULT_SPEED ? 'selected' : ''}>${s}×</option>`).join('')}</select>
       </label>
@@ -61,7 +63,7 @@ export class Player {
         <span><i style="background:var(--dot-balk)"></i>Left (line full)</span>
       </span>
       <span class="stale badge warn" hidden>Model changed since this run</span>
-      <button type="button" class="close" aria-label="Hide replay" title="Hide replay">✕</button>`;
+      <button type="button" class="reset" title="Clear the replay and results"><svg class="i" aria-hidden="true"><use href="#i-undo"/></svg>Reset simulation</button>`;
     host.appendChild(this.bar);
     const q = <T extends HTMLElement>(s: string) => this.bar.querySelector(s) as T;
     this.els = {
@@ -75,7 +77,7 @@ export class Player {
       this.t = Number(this.els.range.value);
       this.draw();
     });
-    q('.close').addEventListener('click', () => this.hide());
+    q('.reset').addEventListener('click', () => this.onReset());
     plan.onViewChange(() => this.draw());
     new ResizeObserver(() => this.draw()).observe(host);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.readColors());
@@ -93,14 +95,25 @@ export class Player {
     return this.replay !== null;
   }
 
-  load(log: LogEvent[], model: ModelSpec, routes: Map<string, Route>, end: number) {
+  /** Everyone's position at the moment the replay shows, or null before a run. */
+  currentFrame(): { t: number; dots: Dot[]; stale: boolean } | null {
+    if (!this.replay) return null;
+    return { t: this.t, dots: this.replay.at(this.t).dots, stale: !this.els.stale.hidden };
+  }
+
+  /** "6:18:21" for a time in minutes. */
+  static clock(min: number): string {
+    return clock(min);
+  }
+
+  load(log: LogEvent[], model: ModelSpec, routes: Map<string, Route>, end: number, startAt = 0) {
     this.replay = new Replay(log, model, routes, end);
     this.warmup = model.run.warmupMin;
     this.mpp = model.background?.metersPerPixel ?? DEFAULT_METERS_PER_PIXEL;
     this.entity = model.entityLabel;
-    this.t = 0;
+    this.t = Math.min(startAt, end);
     this.els.range.max = String(end);
-    this.els.range.value = '0';
+    this.els.range.value = String(this.t);
     this.els.stale.hidden = true;
     this.bar.hidden = false;
     this.canvas.hidden = false;
@@ -112,17 +125,25 @@ export class Player {
     if (this.replay) this.els.stale.hidden = false;
   }
 
-  hide() {
+  /** Called by the Reset simulation button; the app clears the results too. */
+  onReset: () => void = () => this.clear();
+
+  /** Drops the replay: no dots, no bar, until the next run. */
+  clear() {
     this.pause();
+    this.replay = null;
+    this.t = 0;
+    this.els.stale.hidden = true;
     this.bar.hidden = true;
     this.canvas.hidden = true;
+    this.draw();
   }
 
   play() {
     if (!this.replay) return;
     if (this.t >= this.replay.end) this.t = 0;
     this.playing = true;
-    this.els.play.textContent = '❚❚';
+    this.els.play.innerHTML = PAUSE_ICON;
     this.els.play.setAttribute('aria-label', 'Pause');
     this.lastFrame = performance.now();
     requestAnimationFrame((now) => this.tick(now));
@@ -130,7 +151,7 @@ export class Player {
 
   pause() {
     this.playing = false;
-    this.els.play.textContent = '▶';
+    this.els.play.innerHTML = PLAY_ICON;
     this.els.play.setAttribute('aria-label', 'Play');
   }
 
