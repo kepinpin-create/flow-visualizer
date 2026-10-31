@@ -18,6 +18,7 @@ import { computeRoutes, routeDistances, type Route } from './routing/pathfinder'
 import bank from './templates/bank.json';
 import bar from './templates/bar.json';
 import { resultsHtml } from './ui/results';
+import { setupSteps } from './ui/steps';
 
 const blank: ModelSpec = {
   version: '0.1',
@@ -34,10 +35,11 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const messageEl = $('message');
 function message(text: string, kind: 'info' | 'error' = 'info') {
   messageEl.textContent = text;
-  messageEl.className = `message ${kind}`;
+  messageEl.className = `message ${kind}${text ? '' : ' empty'}`;
 }
 
-const store = new Store(validateModel(bank).model!);
+// Start empty: the canvas shows "start with your floor plan" with one-click choices.
+const store = new Store(blank);
 
 // Live checks (FR-15): run before the canvas draws so flagged blocks are current.
 const flagged = new Set<string>();
@@ -49,6 +51,13 @@ let lastWarnings: Issue[] = [];
 let routeWarnings: Issue[] = [];
 
 function renderChecks() {
+  // An empty model is a starting point, not a list of errors.
+  if (!store.model.blocks.length) {
+    checkCount.textContent = '';
+    checkCount.className = 'badge';
+    issuesEl.innerHTML = '<p class="note">Nothing to check yet. Add blocks, and anything that would stop a run shows up here.</p>';
+    return;
+  }
   checkCount.textContent = lastErrors.length ? `${lastErrors.length} to fix` : 'Ready to run';
   checkCount.className = `badge ${lastErrors.length ? 'bad' : 'ok'}`;
   issuesEl.innerHTML = [
@@ -202,14 +211,15 @@ store.subscribe(() => {
 });
 
 const templateSelect = $<HTMLSelectElement>('template');
-templateSelect.value = 'bank';
-templateSelect.addEventListener('change', () => {
-  const t = templates[templateSelect.value];
+templateSelect.value = '';
+function loadTemplate(name: string) {
+  const t = templates[name];
   if (!t) return;
   store.replace(validateModel(t).model!);
   canvas.fit();
   message('Template loaded. Undo brings back what you had.');
-});
+}
+templateSelect.addEventListener('change', () => loadTemplate(templateSelect.value));
 
 // FR-01, FR-02: upload a plan, then calibrate its scale.
 const planFile = $<HTMLInputElement>('plan-file');
@@ -386,6 +396,8 @@ runButton.addEventListener('click', () => {
     lastRun = { model, result: msg.result, distances: routeDistances(runRoutes) };
     review.attach(resultsEl);
     resultsEl.dataset.ran = 'true';
+    improved = false;
+    queueMicrotask(updateGuidance);
     resultsVersion = version;
     resultsEl.classList.toggle('stale', version !== store.version);
     if (msg.result.log) {
@@ -408,6 +420,56 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     });
   });
 }
+
+// ---- guidance: step bar and empty canvas ----
+let improved = false;
+resultsEl.addEventListener('flow:improved', () => {
+  improved = true;
+  updateGuidance();
+});
+const steps = setupSteps($('steps'), (id) => {
+  switch (id) {
+    case 'plan':
+      $('upload').click();
+      break;
+    case 'blocks':
+      if (store.model.background?.file.startsWith('data:')) ai.suggestLayout();
+      else $('palette').querySelector<HTMLElement>('button')?.focus();
+      break;
+    case 'numbers':
+      $('issues').closest('.panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+    case 'run':
+      runButton.click();
+      break;
+    case 'improve':
+      (resultsEl.querySelector<HTMLElement>('[data-review="start"]') ?? resultsEl).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+  }
+});
+const emptyState = $('empty-state');
+emptyState.addEventListener('click', (e) => {
+  const act = (e.target as HTMLElement).closest<HTMLElement>('[data-empty]')?.dataset.empty;
+  if (act === 'upload') $('upload').click();
+  if (act === 'bank') {
+    templateSelect.value = 'bank';
+    loadTemplate('bank');
+  }
+});
+function updateGuidance() {
+  const m = store.model;
+  const hasPlan = !!m.background?.file.startsWith('data:');
+  emptyState.hidden = hasPlan || m.blocks.length > 0;
+  steps.update({
+    hasPlan,
+    blocks: m.blocks.length,
+    links: m.links.length,
+    problems: m.blocks.length ? lastErrors.length : 0,
+    ranFresh: resultsEl.dataset.ran === 'true' && resultsVersion === store.version,
+    improved: improved && resultsVersion === store.version,
+  });
+}
+store.subscribe(updateGuidance);
 
 // First paint.
 store.select(null);

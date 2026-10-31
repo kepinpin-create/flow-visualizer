@@ -193,7 +193,9 @@ export class PlanCanvas {
     this.svg.dataset.tool = tool;
     this.hooks.toolChanged(tool);
     const help: Record<Tool, string> = {
-      select: 'Drag blocks to move them. Use the corner handle to resize and the top handle to rotate. Drag empty space to pan; scroll to zoom.',
+      select: matchMedia('(pointer: coarse)').matches
+        ? 'Drag blocks to move them. Drag empty space to pan; pinch with two fingers to zoom.'
+        : 'Drag blocks to move them. Use the corner handle to resize and the top handle to rotate. Drag empty space to pan; scroll to zoom.',
       link: 'Click the block the flow leaves, then the block it goes to.',
       wall: 'Click to add wall points. Double-click or press Enter to finish; Esc cancels.',
       calibrate: 'Click two points whose real distance you know, such as the ends of a wall or a door.',

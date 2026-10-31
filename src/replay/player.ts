@@ -5,6 +5,8 @@ import { DEFAULT_METERS_PER_PIXEL, type ModelSpec } from '../model/types';
 import type { Route } from '../routing/pathfinder';
 import { Replay, type Dot, type DotState } from './replay';
 
+const PLAY_ICON = '<svg class="i" aria-hidden="true"><use href="#i-play"/></svg>';
+const PAUSE_ICON = '<svg class="i" aria-hidden="true"><use href="#i-pause"/></svg>';
 const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
 const DEFAULT_SPEED = 100;
 /** Dot radius, meters, with a floor in screen pixels so dots stay visible when zoomed out. */
@@ -46,7 +48,7 @@ export class Player {
     this.bar.className = 'replay-bar';
     this.bar.hidden = true;
     this.bar.innerHTML = `
-      <button type="button" class="play" aria-label="Play">▶</button>
+      <button type="button" class="play icon-only" aria-label="Play">${PLAY_ICON}</button>
       <label class="inline">Speed
         <select class="speed">${SPEEDS.map((s) => `<option value="${s}" ${s === DEFAULT_SPEED ? 'selected' : ''}>${s}×</option>`).join('')}</select>
       </label>
@@ -61,7 +63,7 @@ export class Player {
         <span><i style="background:var(--dot-balk)"></i>Left (line full)</span>
       </span>
       <span class="stale badge warn" hidden>Model changed since this run</span>
-      <button type="button" class="close" aria-label="Hide replay" title="Hide replay">✕</button>`;
+      <button type="button" class="close icon-only" aria-label="Hide replay" title="Hide replay"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>`;
     host.appendChild(this.bar);
     const q = <T extends HTMLElement>(s: string) => this.bar.querySelector(s) as T;
     this.els = {
@@ -133,7 +135,7 @@ export class Player {
     if (!this.replay) return;
     if (this.t >= this.replay.end) this.t = 0;
     this.playing = true;
-    this.els.play.textContent = '❚❚';
+    this.els.play.innerHTML = PAUSE_ICON;
     this.els.play.setAttribute('aria-label', 'Pause');
     this.lastFrame = performance.now();
     requestAnimationFrame((now) => this.tick(now));
@@ -141,7 +143,7 @@ export class Player {
 
   pause() {
     this.playing = false;
-    this.els.play.textContent = '▶';
+    this.els.play.innerHTML = PLAY_ICON;
     this.els.play.setAttribute('aria-label', 'Play');
   }
 

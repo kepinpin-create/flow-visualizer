@@ -104,12 +104,12 @@ export function setupReview(opts: {
   function barHtml(): string {
     const lang = readLanguage();
     return `<div class="review-bar">
-      <button type="button" class="primary" data-review="start">AI review: explain and suggest fixes</button>
+      <button type="button" class="ai strong" data-review="start"><svg class="i" aria-hidden="true"><use href="#i-sparkles"/></svg><span>AI review: explain and suggest fixes</span></button>
       <label class="inline">in <select name="review-lang">
         <option value="en" ${lang === 'en' ? 'selected' : ''}>English</option>
         <option value="id" ${lang === 'id' ? 'selected' : ''}>Bahasa Indonesia</option>
       </select></label>
-      <button type="button" data-review="layout" title="Moves busy areas closer together and to the entrance. Runs here, no AI or key needed.">Optimize layout</button>
+      <button type="button" data-review="layout" title="Moves busy areas closer together and to the entrance. Runs here, no AI or key needed."><svg class="i" aria-hidden="true"><use href="#i-layout"/></svg><span>Optimize layout</span></button>
       <span class="note">AI review sends only these numbers and the block names, no plan image. Every suggestion is then tested in the simulator.</span>
     </div>
     <div class="layout-out"></div>
@@ -204,6 +204,7 @@ export function setupReview(opts: {
         });
         const c = compareRuns(run.result, after, run.model.entityLabel);
         current[i].tested = true;
+        host.dispatchEvent(new CustomEvent('flow:improved'));
         box.innerHTML = `<p>${verdictHtml(c)}</p>${comparisonHtml(c)}
           <div class="actions"><button type="button" data-review="apply" data-i="${i}">Apply this change and run again</button></div>`;
       } catch (err) {
@@ -273,6 +274,7 @@ export function setupReview(opts: {
       const sim = await runInWorker(result.model, { distances: after, signal });
       const c = compareRuns(run.result, sim, run.model.entityLabel);
       layout.comparison = c;
+      host.dispatchEvent(new CustomEvent('flow:improved'));
       test.innerHTML = `<p>${verdictHtml(c)}</p>${comparisonHtml(c)}
         <div class="actions">
           <button type="button" data-review="layout-apply">Apply new layout and run again</button>
