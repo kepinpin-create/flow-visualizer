@@ -113,6 +113,17 @@ describe('warnings (FR-26)', () => {
     expect(res.warnings.some((w) => w.message.includes('busy'))).toBe(true);
   });
 
+  it('warns that a 90%-busy line needs a longer warm-up, and says how long', () => {
+    // Settling time 1 / (μ(1 − √0.9)²) ≈ 380 min; with 60 min the waits read about 16% low.
+    const res = runExperiment(mmc(54, 1, 1, { hours: 8, warmupMin: 60, replications: 5, seed: 1 }));
+    expect(res.warnings.map((w) => w.message).join('\n')).toMatch(/too short for Server \(90% busy\).*at least 380 min/);
+  });
+
+  it('stays quiet about warm-up for the bank example', () => {
+    const res = runExperiment(valid(bank));
+    expect(res.warnings.filter((w) => w.message.startsWith('Warm-up'))).toHaveLength(0);
+  });
+
   it('warns when a station is unstable', () => {
     const res = runExperiment(mmc(70, 1, 1, { hours: 50, warmupMin: 60, replications: 3, seed: 1 }));
     expect(res.warnings.some((w) => w.message.includes('unstable'))).toBe(true);

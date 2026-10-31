@@ -196,6 +196,16 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
 
   // FR-26: utilization warnings.
   const warnings: Warning[] = [];
+  let slowest: { name: string; rho: number; settleMin: number } | undefined;
+  for (const s of stations) {
+    const block = model.blocks.find((b) => b.id === s.id);
+    const rho = offered.get(s.id) ?? s.utilization.mean;
+    if (block?.type === 'server' && rho > 0 && rho < 1) {
+      // A busy line takes about 1 / (cμ(1 − √ρ)²) to fill up from empty (M/M/c relaxation time).
+      const settleMin = drawnMean(block.service) / (block.servers * (1 - Math.sqrt(rho)) ** 2);
+      if (settleMin > model.run.warmupMin && (!slowest || settleMin > slowest.settleMin)) slowest = { name: s.label || s.id, rho, settleMin };
+    }
+  }
   for (const s of stations) {
     const name = s.label || s.id;
     const load = offered.get(s.id);
@@ -212,7 +222,13 @@ export function runExperiment(model: ModelSpec, opts: ExperimentOptions = {}): E
       });
     }
   }
-  if (model.run.warmupMin < 3 * system.W.mean) {
+  if (slowest) {
+    const need = Math.ceil(slowest.settleMin / 10) * 10;
+    const runToo = need >= model.run.hours * 60 ? ', and make the run longer than that' : '';
+    warnings.push({
+      message: `Warm-up (${model.run.warmupMin} min) is too short for ${slowest.name} (${(slowest.rho * 100).toFixed(0)}% busy). A line this busy needs about ${need} min to fill up from an empty start, so its waits read low. Set warm-up to at least ${need} min${runToo}.`,
+    });
+  } else if (model.run.warmupMin < 3 * system.W.mean) {
     warnings.push({
       message: `Warm-up (${model.run.warmupMin} min) is shorter than 3× the mean time in system (${system.W.mean.toFixed(1)} min). The model starts empty, so early waits may be biased low.`,
     });

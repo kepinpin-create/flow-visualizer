@@ -76,8 +76,8 @@ export function resultsHtml(r: ExperimentResult, entity: string): string {
 
     <h2>Stations</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>Station</th><th>Staff (c)</th><th>Busy (ρ)</th><th>Average wait (Wq)</th><th>9 in 10 wait less than (p90)</th>
-        <th>Average line (Lq)</th><th>Longest line</th><th>Arrivals/h (λ)</th></tr></thead>
+      <thead><tr><th>Station</th><th>Staff (c)</th><th>Busy (ρ)</th><th>Average wait (Wq)</th><th>9 in 10 wait less than (p90, typical day)</th>
+        <th>Average line (Lq)</th><th>Longest line (typical day)</th><th>Arrivals/h (λ)</th></tr></thead>
       <tbody>${stationRows}</tbody>
     </table></div>
 
