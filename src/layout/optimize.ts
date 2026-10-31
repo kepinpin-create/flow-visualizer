@@ -5,6 +5,10 @@ import { trafficRates } from '../analysis/queueing';
 import { metersPerPixel, planExtent } from '../editor/blocks';
 import { isFixed, type Block, type ModelSpec, type Point } from '../model/types';
 import { buildGrid, findRoute, routeKey, type Grid } from '../routing/pathfinder';
+import { findRooms } from './rooms';
+
+/** Furthest a block may move from where it started, meters: rearranging, not rebuilding. */
+export const MAX_MOVE_M = 6;
 
 /** People per hour walking each link, from the long-run traffic through the model. */
 export function linkFlows(model: ModelSpec): Map<string, number> {
@@ -102,12 +106,18 @@ function candidateSpots(model: ModelSpec): Point[] {
  * the walking load most, until no move helps or the time budget runs out. Every spot
  * passes the same checks as AI moves: inside the plan, clear of walls and blocks, reachable.
  */
-export function optimizeLayout(model: ModelSpec, opts: { timeBudgetMs?: number; maxMoves?: number } = {}): LayoutResult {
+export function optimizeLayout(
+  model: ModelSpec, opts: { timeBudgetMs?: number; maxMoves?: number; maxMoveM?: number } = {},
+): LayoutResult {
   const started = performance.now();
   const budget = opts.timeBudgetMs ?? 3000;
   const maxMoves = opts.maxMoves ?? 8;
+  const maxMoveM = opts.maxMoveM ?? MAX_MOVE_M;
   const mpp = metersPerPixel(model);
   const { width, height } = planExtent(model);
+  // Blocks stay in the room they are in, and within a short distance of where they started.
+  const rooms = findRooms(model, width, height);
+  const homeRoom = new Map(model.blocks.map((b) => [b.id, rooms.at(b.x, b.y)]));
   const dist = new Distances(buildGrid(model, width, height), mpp);
   const flows = linkFlows(model);
   const work: ModelSpec = JSON.parse(JSON.stringify(model));
@@ -147,6 +157,9 @@ export function optimizeLayout(model: ModelSpec, opts: { timeBudgetMs?: number; 
         const dx = Math.round(sx - unit.anchor.x);
         const dy = Math.round(sy - unit.anchor.y);
         if (!dx && !dy) continue;
+        const [ox, oy] = original.get(unit.anchor.id)!;
+        if (Math.hypot(sx - ox, sy - oy) * mpp > maxMoveM) continue;
+        if (unit.members.some((m) => rooms.at(m.x + dx, m.y + dy) !== homeRoom.get(m.id))) continue;
         // Place the whole unit, then check each member against everything else.
         const moved = work.blocks.map((b) => (ids.has(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b));
         // Members of one unit sit side by side on purpose, so each is checked against everything else.

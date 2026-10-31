@@ -74,3 +74,39 @@ describe('optimize layout', () => {
     expect(optimizeLayout(locked).moves).toHaveLength(0);
   });
 });
+
+describe('optimize layout keeps blocks in their room', () => {
+  // A 20 x 12 m building split by a wall at x = 10 m with a 1.2 m doorway; the counter is in the right room.
+  const W = 1000;
+  const H = 600;
+  const twoRooms = valid({
+    version: '0.1', entityLabel: 'customer',
+    background: { file: '', metersPerPixel: 0.02, width: W, height: H },
+    walls: [
+      [[0, 0], [W, 0], [W, H], [0, H], [0, 0]],
+      [[500, 0], [500, 270]], [[500, 330], [500, H]], // the inner wall, with a 60 px (1.2 m) doorway
+    ],
+    blocks: [
+      { id: 'in', type: 'source', label: 'Entrance', x: 40, y: 300, arrival: { dist: 'exponential', ratePerHour: 30 } },
+      { id: 'desk', type: 'server', label: 'Desk', x: 900, y: 500, servers: 2, service: { dist: 'exponential', meanMin: 3 } },
+      { id: 'out', type: 'sink', label: 'Exit', x: 40, y: 360 },
+    ],
+    links: [{ from: 'in', to: 'desk' }, { from: 'desk', to: 'out' }],
+    run: { hours: 4, warmupMin: 30, replications: 5, seed: 1 },
+  });
+
+  it('finds the two rooms through the doorway', async () => {
+    const { findRooms } = await import('../src/layout/rooms');
+    const rooms = findRooms(twoRooms, W, H);
+    expect(rooms.at(250, 300)).not.toBe(rooms.at(750, 300));
+    expect(rooms.at(250, 100)).toBe(rooms.at(250, 500));
+  });
+
+  it('never moves the desk into the room with the entrance, and never more than 6 m', () => {
+    const r = optimizeLayout(twoRooms);
+    const desk = r.model.blocks.find((b) => b.id === 'desk')!;
+    expect(desk.x).toBeGreaterThan(500); // still right of the inner wall
+    for (const m of r.moves) expect(m.movedM).toBeLessThanOrEqual(6.01);
+    expect(r.after).toBeLessThanOrEqual(r.before);
+  });
+});
