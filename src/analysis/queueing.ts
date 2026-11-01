@@ -1,4 +1,4 @@
-import { interarrival, isExponential, mean } from '../engine/distributions';
+import { drawnMean, interarrival, isExponential } from '../engine/distributions';
 import type { Block, ModelSpec } from '../model/types';
 
 /** Erlang-C results for an M/M/c station; rates per minute, times in minutes. */
@@ -28,13 +28,20 @@ export function erlangC(lambda: number, mu: number, c: number): MMc {
 /**
  * Long-run arrival rate (per minute) into every block, from the traffic
  * equations λ = λ0 + λP. Ignores balking and finite queues.
+ *
+ * A source with "max arrivals" stops early, so it has no steady rate and is left
+ * out by default (the theory check needs a steady state). With `averageCapped`,
+ * it counts as its arrivals spread over the whole run instead, which is what
+ * matters for how much walking a layout causes.
  */
-export function trafficRates(model: ModelSpec): Map<string, number> {
+export function trafficRates(model: ModelSpec, opts: { averageCapped?: boolean } = {}): Map<string, number> {
   const external = new Map<string, number>();
+  const runMin = model.run.hours * 60;
   for (const b of model.blocks) {
-    if (b.type === 'source' && b.maxArrivals === undefined) {
-      external.set(b.id, (b.groupSize ?? 1) / mean(interarrival(b.arrival)));
-    }
+    if (b.type !== 'source') continue;
+    const rate = (b.groupSize ?? 1) / drawnMean(interarrival(b.arrival));
+    if (b.maxArrivals === undefined) external.set(b.id, rate);
+    else if (opts.averageCapped) external.set(b.id, Math.min(rate, b.maxArrivals / runMin));
   }
   let rates = new Map(model.blocks.map((b) => [b.id, external.get(b.id) ?? 0]));
   for (let iter = 0; iter < 10000; iter++) {
@@ -83,6 +90,15 @@ const losesNothing = (b: Block) => b.type !== 'queue' || (b.capacity === undefin
  */
 export function losslessStations(model: ModelSpec): Set<string> {
   return serversWhereUpstream(model, losesNothing);
+}
+
+/**
+ * Servers with none of `blocked` at or before them in the flow. An overloaded station
+ * holds people back and evens out who gets through, so stations after it no longer see
+ * the arrivals the traffic equations assume.
+ */
+export function serversClearOf(model: ModelSpec, blocked: Set<string>): Set<string> {
+  return serversWhereUpstream(model, (b) => !blocked.has(b.id));
 }
 
 /**
