@@ -14,6 +14,21 @@ Runs entirely in the browser; no install, account or API key.
 Open it in a browser: **https://kepinpin-create.github.io/flow-visualizer/** (published from `main`).
 Nothing to install, and it works on Windows, macOS, Linux, ChromeOS and tablets.
 
+### Quick start (5 minutes)
+
+1. Open the link above and click **Try the bank example**. The editor opens with a small bank already run:
+   watch the replay, then scroll down to the results.
+2. Click **Upload plan** and pick a PNG, JPG or PDF of your floor plan
+   ([`samples/bank-branch-plan.pdf`](samples/bank-branch-plan.pdf) works too).
+3. Set the scale: click two points on the plan whose real distance you know and type it in meters.
+4. Place the flow: either click **AI layout** (needs your own AI key, see below) or drag blocks from the left
+   palette and connect them with **Link**: Source → Queue → Server → Sink.
+5. Fill in the numbers **Checks** asks for (arrivals per hour, service minutes), then click **Run simulation**.
+6. Improve it: **AI review**, **Layout scorecard** or **Optimize layout** under the results; **3D** above the
+   plan; **AI picture** and **Technical drawing** for slides.
+
+The link `…/app.html?example=bank&run=1` opens the bank example straight in the editor.
+
 - **Offline:** after the first visit the app is cached and keeps working without internet. It can also be
   installed as an app from the browser's address bar.
 - **Browsers:** current Chrome, Edge, Firefox and Safari. Older ones back to roughly Chrome 87, Firefox 78
@@ -73,12 +88,32 @@ pick, so for confidential layouts use a local model.
    - **Optimize layout** moves busy areas closer together (within their room, at most 6 m; blocks marked
      "Fixed in place" stay put) and simulates the result. Switch **Current layout / Optimized layout** above the
      plan to watch both replays at the same time of day, then apply it or make a picture of it.
-9. **Save model** downloads one JSON file with the plan image inside; **Open model…** loads it back.
+9. **3D** (top right of the plan) shows walls, blocks and people walking in 3D, in sync with the replay;
+   drag to orbit, scroll to zoom, click 3D again to go back. View only; editing stays in 2D.
+10. **AI picture** turns the layout on screen into an illustration (Muse Image, your Meta key). In the same
+    dialog, **Technical drawing** makes an exact plan with labels, sizes, dimensions and a scale bar, free and
+    without a key, as PNG or SVG. Both follow the Current / Optimized view.
+11. **Save model** downloads one JSON file with the plan image inside; **Open model…** loads it back.
 
 ## Run it locally
 
-Needs Node.js 22.13 or newer (`.nvmrc` pins 24; with nvm, run `nvm use`). Works the same on Windows, macOS
-and Linux: line endings are fixed by `.gitattributes`, and CI checks all three on every push.
+Needs [Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org/) 22.13 or newer (the LTS
+download is fine; `.nvmrc` pins 24, so with nvm run `nvm use`). Works the same on Windows, macOS and Linux:
+line endings are fixed by `.gitattributes`, and CI checks all three on every push.
+
+From zero, in a terminal:
+
+```bash
+git clone https://github.com/kepinpin-create/flow-visualizer.git
+cd flow-visualizer
+npm ci
+npm run dev
+```
+
+Then open **http://localhost:5173** (landing page) or **http://localhost:5173/app.html** (editor). Edits to the
+code show up in the browser right away. Keep the terminal open; Ctrl+C stops the server.
+
+All commands:
 
 ```bash
 npm ci             # exact versions from package-lock.json
@@ -94,7 +129,9 @@ instead (for example `npm.cmd run dev`), or use Command Prompt.
 ### Deploying
 
 `.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`.
-One-time setup in the repo: **Settings → Pages → Source: GitHub Actions**.
+One-time setup in the repo: **Settings → Pages → Source: GitHub Actions** (not "Deploy from a branch", which
+serves the unbuilt source and shows an unstyled page). Re-running an old deploy republishes that old version,
+so to redeploy, re-run only the newest run or push to `main`.
 
 ## How it works
 
