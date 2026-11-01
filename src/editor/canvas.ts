@@ -4,8 +4,9 @@ import {
 } from './blocks';
 import type { Store } from './store';
 import { routeKey, type Route } from '../routing/pathfinder';
+import { cutDoorAt, MIN_DOOR_M } from '../ai/walls';
 
-export type Tool = 'select' | 'link' | 'wall' | 'calibrate';
+export type Tool = 'select' | 'link' | 'wall' | 'door' | 'calibrate';
 
 export interface CanvasHooks {
   /** Short guidance or an error for the status line. */
@@ -16,6 +17,19 @@ export interface CanvasHooks {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const PLAN_OPACITY_KEY = 'flow-visualizer.planOpacity';
+const DEFAULT_PLAN_OPACITY = 40;
+const SHOW_PATHS_KEY = 'flow-visualizer.showPaths';
+
+function readPlanOpacity(): number {
+  try {
+    const v = Number(localStorage.getItem(PLAN_OPACITY_KEY));
+    if (v >= 10 && v <= 100) return v;
+  } catch {
+    // storage blocked: use the default
+  }
+  return DEFAULT_PLAN_OPACITY;
+}
 const MIN_SIZE_M = 0.3;
 
 type Drag =
@@ -42,12 +56,69 @@ export class PlanCanvas {
   private calib: Point[] = [];
   private pointer: Point | null = null;
   private imageHref = '';
+  private planControls: HTMLElement;
+  /** Plan image visibility, percent. Faded by default so blocks stand out. */
+  private planOpacity = readPlanOpacity();
+  private planShown = true;
   tool: Tool = 'select';
   /** Blocks to outline in red because validation flagged them. */
   flagged = new Set<string>();
   /** Walking paths per link, drawn faintly under the links. */
   routes = new Map<string, Route>();
+  /** People per hour on each link; busier paths are drawn thicker. */
+  routeFlows = new Map<string, number>();
+  /** Problem spots from the layout scorecard, drawn on top until the model changes. */
+  private markers: { x: number; y: number; kind: 'crossing' | 'overflow' | 'door' | 'uturn'; text: string }[] = [];
+
+  setMarkers(markers: PlanCanvas['markers'] | null) {
+    this.markers = markers ?? [];
+    this.render();
+  }
+
+  /** A proposed layout (Optimize layout): new spots and the walking paths they give. */
+  private preview: { id: string; to: Point; w?: number; h?: number }[] = [];
+  private previewRoutes: Map<string, Route> | null = null;
+  /** Which layout the plan shows while a proposal exists. The proposal view is look-only. */
+  private viewing: 'current' | 'proposal' = 'current';
+  private viewSwitch!: HTMLElement;
+  private modeListeners = new Set<(mode: 'current' | 'proposal') => void>();
+
+  /** Shows a proposed layout and switches the plan to it; null removes it. */
+  setPreview(moves: { id: string; to: Point; w?: number; h?: number }[] | null, routes?: Map<string, Route>) {
+    this.preview = moves ?? [];
+    this.previewRoutes = routes ?? null;
+    this.setViewing(this.preview.length ? 'proposal' : 'current');
+  }
+
+  onModeChange(fn: (mode: 'current' | 'proposal') => void) {
+    this.modeListeners.add(fn);
+  }
+
+  private setViewing(mode: 'current' | 'proposal') {
+    this.viewing = this.preview.length ? mode : 'current';
+    this.viewSwitch.hidden = !this.preview.length;
+    for (const b of this.viewSwitch.querySelectorAll<HTMLButtonElement>('[data-view]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.view === this.viewing));
+    }
+    this.svg.classList.toggle('proposal', this.viewing === 'proposal');
+    for (const fn of this.modeListeners) fn(this.viewing);
+    this.render();
+  }
+
+  /** The model as drawn: with the proposed positions while viewing the proposal. */
+  private displayModel() {
+    const m = this.store.model;
+    if (this.viewing !== 'proposal' || !this.preview.length) return m;
+    const byChange = new Map(this.preview.map((p) => [p.id, p]));
+    return { ...m, blocks: m.blocks.map((b) => {
+      const p = byChange.get(b.id);
+      return p ? { ...b, x: p.to[0], y: p.to[1], ...(p.w ? { w: p.w } : {}), ...(p.h ? { h: p.h } : {}) } : b;
+    }) };
+  }
   private viewListeners = new Set<() => void>();
+  /** Fingers currently on the plan, by pointer id, in client pixels. */
+  private touches = new Map<number, Point>();
+  private pinch: { dist: number; mx: number; my: number; view: { x: number; y: number; k: number } } | null = null;
 
   constructor(host: HTMLElement, private store: Store, private hooks: CanvasHooks) {
     host.innerHTML = `
@@ -75,9 +146,66 @@ export class PlanCanvas {
     this.content = this.svg.querySelector('.content')!;
     this.overlay = this.svg.querySelector('.overlay')!;
 
+    // Switch between the current layout and a proposed one, over the same floor plan.
+    this.viewSwitch = document.createElement('div');
+    this.viewSwitch.className = 'view-switch';
+    this.viewSwitch.hidden = true;
+    this.viewSwitch.setAttribute('role', 'group');
+    this.viewSwitch.setAttribute('aria-label', 'Layout shown');
+    this.viewSwitch.innerHTML = `
+      <button type="button" data-view="current">Current layout</button>
+      <button type="button" data-view="proposal">Optimized layout</button>`;
+    host.appendChild(this.viewSwitch);
+    this.viewSwitch.addEventListener('click', (e) => {
+      const v = (e.target as HTMLElement).closest<HTMLElement>('[data-view]')?.dataset.view;
+      if (v === 'current' || v === 'proposal') this.setViewing(v);
+    });
+
+    // Fade or hide the uploaded plan so the blocks on top stay readable.
+    this.planControls = document.createElement('div');
+    this.planControls.className = 'plan-controls';
+    this.planControls.innerHTML = `
+      <label class="inline">Plan <input type="range" min="10" max="100" step="5" aria-label="Plan visibility"></label>
+      <label class="inline"><input type="checkbox" checked> Show</label>
+      <label class="inline" title="Walking paths between blocks"><input type="checkbox" checked> Paths</label>`;
+    host.appendChild(this.planControls);
+    const [fade, show, paths] = this.planControls.querySelectorAll('input');
+    try {
+      paths.checked = localStorage.getItem(SHOW_PATHS_KEY) !== '0';
+    } catch {
+      // storage blocked: paths stay on
+    }
+    const applyPaths = () => this.svg.classList.toggle('hide-paths', !paths.checked);
+    applyPaths();
+    paths.addEventListener('change', () => {
+      applyPaths();
+      try {
+        localStorage.setItem(SHOW_PATHS_KEY, paths.checked ? '1' : '0');
+      } catch {
+        // per-viewer convenience only
+      }
+    });
+    fade.value = String(this.planOpacity);
+    fade.addEventListener('input', () => {
+      this.planOpacity = Number(fade.value);
+      show.checked = true;
+      this.planShown = true;
+      this.applyPlanLook();
+      try {
+        localStorage.setItem(PLAN_OPACITY_KEY, fade.value);
+      } catch {
+        // per-viewer convenience only
+      }
+    });
+    show.addEventListener('change', () => {
+      this.planShown = show.checked;
+      this.applyPlanLook();
+    });
+
     this.svg.addEventListener('pointerdown', (e) => this.onDown(e));
     this.svg.addEventListener('pointermove', (e) => this.onMove(e));
     this.svg.addEventListener('pointerup', (e) => this.onUp(e));
+    this.svg.addEventListener('pointercancel', (e) => this.onUp(e));
     this.svg.addEventListener('dblclick', () => this.tool === 'wall' && this.finishWall());
     this.svg.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.svg.addEventListener('dragover', (e) => e.preventDefault());
@@ -94,10 +222,13 @@ export class PlanCanvas {
     this.svg.dataset.tool = tool;
     this.hooks.toolChanged(tool);
     const help: Record<Tool, string> = {
-      select: 'Drag blocks to move them. Use the corner handle to resize and the top handle to rotate. Drag empty space to pan; scroll to zoom.',
+      select: matchMedia('(pointer: coarse)').matches
+        ? 'Drag blocks to move them. Drag empty space to pan; pinch with two fingers to zoom.'
+        : 'Drag blocks to move them. Use the corner handle to resize and the top handle to rotate. Drag empty space to pan; scroll to zoom.',
       link: 'Click the block the flow leaves, then the block it goes to.',
       wall: 'Click to add wall points. Double-click or press Enter to finish; Esc cancels.',
       calibrate: 'Click two points whose real distance you know, such as the ends of a wall or a door.',
+      door: `Click a wall where people should be able to walk through; a ${MIN_DOOR_M} m doorway opens there.`,
     };
     this.hooks.message(help[tool]);
     this.render();
@@ -169,7 +300,8 @@ export class PlanCanvas {
     let id = '';
     this.store.commit((m) => {
       id = uniqueId(m, src.type);
-      const copy = { ...structuredClone(src), id, label: `${src.label} copy`, x: src.x + 30, y: src.y + 30, origin: 'user' as const };
+      // A JSON round trip rather than structuredClone, which older Safari lacks; blocks are plain JSON.
+      const copy = { ...(JSON.parse(JSON.stringify(src)) as typeof src), id, label: `${src.label} copy`, x: src.x + 30, y: src.y + 30, origin: 'user' as const };
       m.blocks.push(copy);
     });
     this.store.select({ kind: 'block', id });
@@ -191,8 +323,25 @@ export class PlanCanvas {
   // ---- pointer handling ----
 
   private onDown(e: PointerEvent) {
+    if (e.pointerType === 'touch') {
+      this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this.touches.size === 2) {
+        // A second finger turns whatever the first one started into a pinch.
+        if (this.drag && this.drag.kind !== 'pan') this.store.endGesture();
+        this.drag = null;
+        this.startPinch();
+        return;
+      }
+      if (this.touches.size > 2) return;
+    }
     if (e.button !== 0 && e.button !== 1) return;
     this.svg.focus();
+    if (this.viewing === 'proposal') {
+      // The proposal is to look at, not edit: only panning works here.
+      this.hooks.message('This is the proposed layout. Switch to “Current layout” to edit, or apply it from the results.');
+      this.startPan(e);
+      return;
+    }
     const target = e.target as Element;
     const p = this.toWorld(e);
     const blockEl = target.closest<SVGElement>('[data-block]');
@@ -231,6 +380,22 @@ export class PlanCanvas {
       this.linkFrom = null;
       this.hooks.message(`Linked. Click the next block the flow leaves, or press Esc.`);
       this.render();
+      return;
+    }
+
+    if (this.tool === 'door') {
+      const mpp = metersPerPixel(this.store.model);
+      // Generous reach: a click within 0.6 m (or 12 screen pixels) of a wall counts.
+      const reach = Math.max(0.6 / mpp, 12 / this.view.k);
+      const walls = cutDoorAt(this.store.model.walls ?? [], p, MIN_DOOR_M / mpp, reach);
+      if (!walls) {
+        this.hooks.message('No wall there. Click right on a wall to open a doorway in it.', 'error');
+        return;
+      }
+      this.store.commit((m) => {
+        m.walls = walls;
+      });
+      this.hooks.message('Doorway opened. Click another wall, or press Esc when done.');
       return;
     }
 
@@ -282,7 +447,40 @@ export class PlanCanvas {
     this.svg.setPointerCapture(e.pointerId);
   }
 
+  private startPinch() {
+    const [[ax, ay], [bx, by]] = [...this.touches.values()];
+    const r = this.svg.getBoundingClientRect();
+    this.pinch = {
+      dist: Math.hypot(bx - ax, by - ay) || 1,
+      mx: (ax + bx) / 2 - r.left,
+      my: (ay + by) / 2 - r.top,
+      view: { ...this.view },
+    };
+  }
+
+  /** Two-finger zoom and pan for touch screens, which have no scroll wheel. */
+  private movePinch() {
+    const pin = this.pinch!;
+    const [[ax, ay], [bx, by]] = [...this.touches.values()];
+    const r = this.svg.getBoundingClientRect();
+    const mx = (ax + bx) / 2 - r.left;
+    const my = (ay + by) / 2 - r.top;
+    const k = Math.min(20, Math.max(0.05, (pin.view.k * Math.hypot(bx - ax, by - ay)) / pin.dist));
+    // Keep the plan point that was under the fingers' midpoint under it now.
+    const wx = (pin.mx - pin.view.x) / pin.view.k;
+    const wy = (pin.my - pin.view.y) / pin.view.k;
+    this.view = { k, x: mx - wx * k, y: my - wy * k };
+    this.render();
+  }
+
   private onMove(e: PointerEvent) {
+    if (this.touches.has(e.pointerId)) {
+      this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this.pinch && this.touches.size >= 2) {
+        this.movePinch();
+        return;
+      }
+    }
     const p = this.toWorld(e);
     this.pointer = p;
     const d = this.drag;
@@ -326,6 +524,8 @@ export class PlanCanvas {
   }
 
   private onUp(e: PointerEvent) {
+    this.touches.delete(e.pointerId);
+    if (this.touches.size < 2) this.pinch = null;
     if (!this.drag) return;
     if (this.drag.kind !== 'pan') this.store.endGesture();
     this.drag = null;
@@ -350,7 +550,18 @@ export class PlanCanvas {
     e.preventDefault();
     const type = e.dataTransfer?.getData('application/x-block-type') as BlockType | '';
     if (!type || !(type in BLOCK_STYLES)) return;
-    const [x, y] = this.toWorld(e);
+    this.dropAt(type, e.clientX, e.clientY);
+  }
+
+  /** True when a screen point is over the plan, so a dragged palette block may land there. */
+  containsPoint(clientX: number, clientY: number): boolean {
+    const r = this.svg.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+
+  /** Adds a block of `type` at a screen point (mouse drop or touch drag from the palette). */
+  dropAt(type: BlockType, clientX: number, clientY: number) {
+    const [x, y] = this.toWorld({ clientX, clientY });
     let id = '';
     this.store.commit((m) => {
       const b = newBlock(m, type, x, y);
@@ -388,6 +599,11 @@ export class PlanCanvas {
 
   // ---- drawing ----
 
+  private applyPlanLook() {
+    this.image.style.display = this.imageHref && this.planShown ? '' : 'none';
+    this.image.style.opacity = String(this.planOpacity / 100);
+  }
+
   private applyView() {
     this.world.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.k})`);
     for (const fn of this.viewListeners) fn();
@@ -403,7 +619,8 @@ export class PlanCanvas {
   }
 
   render() {
-    const m = this.store.model;
+    const m = this.displayModel();
+    const proposal = this.viewing === 'proposal';
     const { width, height } = planExtent(m);
     for (const el of [this.svg.querySelector('.plan-bg')!, this.image, this.grid]) {
       el.setAttribute('width', String(width));
@@ -414,13 +631,15 @@ export class PlanCanvas {
       this.imageHref = href;
       this.image.setAttribute('href', href);
     }
-    this.image.style.display = href ? '' : 'none';
     this.grid.style.display = href ? 'none' : '';
+    this.planControls.hidden = !href;
+    this.applyPlanLook();
     this.applyView();
 
     const k = this.view.k;
-    const sel = this.store.selection;
+    const sel = proposal ? null : this.store.selection;
     const byId = new Map(m.blocks.map((b) => [b.id, b]));
+    const routes = proposal && this.previewRoutes ? this.previewRoutes : this.routes;
     const parts: string[] = [];
 
     (m.walls ?? []).forEach((w, i) => {
@@ -430,11 +649,15 @@ export class PlanCanvas {
         <polyline class="wall${on ? ' selected' : ''}" points="${pts}"/></g>`);
     });
 
-    // Walking paths first, so links draw on top of them.
+    // Walking paths first, so links draw on top of them. Width shows how many people use each one.
+    const maxFlow = Math.max(0, ...this.routeFlows.values());
     for (const l of m.links) {
-      const r = this.routes.get(routeKey(l.from, l.to));
+      const key = routeKey(l.from, l.to);
+      const r = routes.get(key);
       if (!r || r.meters === 0) continue;
-      parts.push(`<polyline class="route${r.noPath ? ' no-path' : ''}" points="${r.points.map(([x, y]) => `${x},${y}`).join(' ')}"/>`);
+      const flow = this.routeFlows.get(key) ?? 0;
+      const width = maxFlow > 0 ? 2 + 10 * (flow / maxFlow) : 3;
+      parts.push(`<polyline class="route${r.noPath ? ' no-path' : ''}" style="stroke-width:${width.toFixed(1)}" points="${r.points.map(([x, y]) => `${x},${y}`).join(' ')}"><title>${Math.round(flow)} people/h walk ${r.meters.toFixed(1)} m</title></polyline>`);
     }
 
     m.links.forEach((l, i) => {
@@ -458,7 +681,26 @@ export class PlanCanvas {
         <line class="link${on ? ' selected' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#arrow)"/>${label}</g>`);
     });
 
-    for (const b of m.blocks) parts.push(this.blockSvg(b, k, sel?.kind === 'block' && sel.id === b.id));
+    // In the proposal view, blocks that moved are marked so the change is easy to spot.
+    const movedIds = new Set(proposal ? this.preview.map((p) => p.id) : []);
+    for (const b of m.blocks) {
+      parts.push(this.blockSvg(b, k, sel?.kind === 'block' && sel.id === b.id).replace(
+        'class="block"', movedIds.has(b.id) ? 'class="block moved"' : 'class="block"'));
+    }
+    // Scorecard problem spots: one shape per kind (never color alone), with the reason on hover.
+    if (!proposal) {
+      const s = 11 / k;
+      for (const mk of this.markers) {
+        const shape = mk.kind === 'crossing'
+          ? `<circle r="${s}"/><path d="M${-s / 2} ${-s / 2}L${s / 2} ${s / 2}M${s / 2} ${-s / 2}L${-s / 2} ${s / 2}"/>`
+          : mk.kind === 'overflow'
+            ? `<path d="M0 ${-s * 1.1}L${s} ${s * 0.8}H${-s}Z"/><path d="M0 ${-s * 0.35}V${s * 0.2}M0 ${s * 0.45}V${s * 0.5}"/>`
+            : mk.kind === 'door'
+              ? `<rect x="${-s}" y="${-s}" width="${2 * s}" height="${2 * s}" rx="${s / 4}"/><path d="M${-s / 2} ${s / 2}L${s / 2} ${-s / 2}"/>`
+              : `<circle r="${s}"/><path d="M${s / 3} ${-s / 2}A${s / 2} ${s / 2} 0 1 0 ${s / 3} ${s / 2}M${s / 3} ${s / 2}l${-s / 3} ${-s / 4}"/>`;
+        parts.push(`<g class="marker ${mk.kind}" transform="translate(${mk.x} ${mk.y})"><title>${esc(mk.text)}</title>${shape}</g>`);
+      }
+    }
     this.content.innerHTML = parts.join('');
     this.renderOverlay();
   }
@@ -506,7 +748,6 @@ export class PlanCanvas {
         shape = `<rect class="${cls}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${2 / k}"/>`;
     }
     const extra = b.type === 'server' ? ` ×${b.servers}` : b.type === 'resource' ? ` ×${b.count}` : '';
-    const ai = b.origin === 'ai' ? ` <tspan class="ai">AI</tspan>` : '';
     const handles = selected
       ? `<rect class="sel-outline" x="${-w / 2 - 4 / k}" y="${-h / 2 - 4 / k}" width="${w + 8 / k}" height="${h + 8 / k}"/>
          <line class="sel-outline" x1="0" y1="${-h / 2 - 4 / k}" x2="0" y2="${-h / 2 - 22 / k}"/>
@@ -515,7 +756,7 @@ export class PlanCanvas {
       : '';
     return `<g class="block" data-block="${esc(b.id)}" style="--c:${s.color}">
       <g transform="translate(${b.x} ${b.y}) rotate(${b.rotation ?? 0})">${shape}${handles}</g>
-      <text class="block-label" x="${b.x}" y="${b.y + this.halfHeight(b, w, h) + 14 / k}" style="font-size:${12 / k}px">${esc(b.label || b.id)}${extra}${ai}</text>
+      <text class="block-label" x="${b.x}" y="${b.y + this.halfHeight(b, w, h) + 14 / k}" style="font-size:${12 / k}px">${esc(b.label || b.id)}${extra}</text>
     </g>`;
   }
 
