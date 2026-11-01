@@ -29,7 +29,26 @@ interface BlockBase {
   h?: number;
   rotation?: number;
   origin?: Origin;
+  /** Values the AI could not read and filled with a placeholder; the run is blocked until the user confirms them. */
+  needsInput?: NeedsInput[];
+  /** Built in place (doors, counters): AI review may not move it. Unset = entrances and exits are fixed, the rest movable. */
+  fixed?: boolean;
 }
+
+/** Whether AI review may suggest moving this block. */
+export function isFixed(b: Pick<BlockBase, 'type' | 'fixed'>): boolean {
+  return b.fixed ?? (b.type === 'source' || b.type === 'sink');
+}
+
+export type NeedsInput = 'arrival' | 'servers' | 'service' | 'time' | 'routing';
+
+export const NEEDS_INPUT_LABELS: Record<NeedsInput, string> = {
+  arrival: 'arrival rate',
+  servers: 'number of servers',
+  service: 'service time',
+  time: 'time spent',
+  routing: 'routing probabilities',
+};
 
 export interface SourceBlock extends BlockBase {
   type: 'source';
