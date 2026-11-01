@@ -139,7 +139,7 @@ export function setupPicture(opts: {
     controller = new AbortController();
     try {
       const { model, optimized } = opts.layout();
-      const ref = await renderPlanPicture(model, people);
+      const ref = await renderPlanPicture(model, people, !optimized);
       const url = await generatePicture(loadSettings('meta'), picturePrompt(model, style, people, context), ref.dataUrl,
         pictureSize(ref.width, ref.height), controller.signal);
       gallery = [{ url, caption: `${optimized ? 'Optimized layout, ' : ''}${PICTURE_STYLES[style].name}${frame ? `, people at ${opts.clock(frame.t)}` : ''}` }, ...gallery].slice(0, 6);

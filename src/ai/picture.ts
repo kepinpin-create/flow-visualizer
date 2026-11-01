@@ -72,7 +72,7 @@ const DOT_COLORS: Record<Dot['state'], string> = {
  * Draws the plan as a clean reference picture: the uploaded plan faintly, walls in black,
  * each block as a colored, labeled footprint, and people as dots. Browser only.
  */
-export async function renderPlanPicture(model: ModelSpec, people: Dot[] = []): Promise<{ dataUrl: string; width: number; height: number }> {
+export async function renderPlanPicture(model: ModelSpec, people: Dot[] = [], showPlan = true): Promise<{ dataUrl: string; width: number; height: number }> {
   const { width, height } = planExtent(model);
   const k = PICTURE_PX / Math.max(width, height);
   const canvas = document.createElement('canvas');
@@ -83,7 +83,8 @@ export async function renderPlanPicture(model: ModelSpec, people: Dot[] = []): P
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(k, k);
 
-  const bg = model.background?.file;
+  // The uploaded plan still shows the original furniture, so a moved layout is drawn without it.
+  const bg = showPlan ? model.background?.file : undefined;
   if (bg?.startsWith('data:')) {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
