@@ -19,7 +19,9 @@ Nothing to install, and it works on Windows, macOS, Linux, ChromeOS and tablets.
 1. Open the link above and click **Try the bank example**. The editor opens with a small bank already run:
    watch the replay, then scroll down to the results.
 2. Click **Upload plan** and pick a PNG, JPG or PDF of your floor plan
-   ([`samples/bank-branch-plan.pdf`](samples/bank-branch-plan.pdf) works too).
+   or try a sample from [`samples/`](samples/): a [bank branch](samples/bank-branch-plan.pdf),
+   [coffee shop](samples/01-coffee-shop.pdf), [outpatient clinic](samples/02-outpatient-clinic.pdf),
+   [minimarket](samples/03-minimarket.pdf) or [metal fabrication line](samples/04-metal-fabrication-line.pdf).
 3. Set the scale: click two points on the plan whose real distance you know and type it in meters.
 4. Place the flow: either click **AI layout** (needs your own AI key, see below) or drag blocks from the left
    palette and connect them with **Link**: Source → Queue → Server → Sink.
